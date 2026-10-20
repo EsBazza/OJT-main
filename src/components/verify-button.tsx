@@ -1,0 +1,3 @@
+"use client";
+import {useState} from "react";
+export function VerifyButton({documentId}:{documentId:string}){const [message,setMessage]=useState("");const [busy,setBusy]=useState(false);return <div className="actions"><button className="button" disabled={busy} onClick={async()=>{setBusy(true);setMessage("");try{const r=await fetch("/api/verification",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({documentId})});const result=await r.json();setMessage(r.ok?`${result.result}: ${result.explanation}`:result.error||"Verification error")}catch{setMessage("VERIFICATION ERROR: Request failed")}finally{setBusy(false)}}}>{busy?"Verifying…":"Verify Digital Signature"}</button>{message&&<span className="small" role="status">{message}</span>}</div>}
