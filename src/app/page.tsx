@@ -1,5 +1,67 @@
 import Link from "next/link";
-import {attendance,docs} from "@/lib/demo-data";
-import {requireDemoRole} from "@/lib/page-auth";
-import {Shell,Card,Panel,Badge,Table} from "@/components/ui";
-export default async function Home(){const {role,user:me}=await requireDemoRole(["STUDENT","SUPERVISOR","COORDINATOR"]);return <Shell role={me.role} name={me.name} active="Dashboard"><div className="heading-row"><div><div className="eyebrow">{role.toLowerCase()} overview · {process.env.DEMO_MODE==="true"?"Demo data":"OJT activity"}</div><h1 className="page-title">Good morning, {me.name.split(" ")[0]}</h1><div className="subtle">Here’s a snapshot of OJT activity for Tuesday, October 20.</div></div>{process.env.DEMO_MODE==="true"&&<Badge tone="blue">DEMO ENVIRONMENT</Badge>}</div><div className="cards">{(role==="COORDINATOR"?[["Total students","128","Across 14 partner companies"],["Approved placements","112","7 awaiting review"],["Present today","96","8 late arrivals"],["Pending reports","23","4 signed documents"]]:role==="STUDENT"?[["Completed hours","184 / 486","38% of required hours"],["Attendance today","Present","Time in 8:42 AM"],["Reports submitted","8","2 awaiting review"],["Placement","Approved","Northstar Digital"]]:[["Assigned students","12","Across your placement"],["Pending reviews","5","3 submitted today"],["Signatures needed","2","Ready for approval"],["Signed this month","18","All signatures recorded"]]).map(([l,v,n])=><Card key={l} label={l} value={v} note={n}/>)}</div><div className="grid-2"><Panel title={role==="STUDENT"?"Recent attendance":"Attendance today"}><Table headers={["Student","Company","Time in","Status"]} rows={attendance.map(a=>[<b>{a.student}</b>,a.company,a.in,<Badge tone={a.status==="Late"?"amber":"green"}>{a.status}</Badge>])}/></Panel><Panel title="Documentation progress"><div className="small">Review and signing workflow · sample records</div>{docs.map(d=><div key={d.id} style={{padding:"13px 0",borderBottom:"1px solid #edf1f5"}}><b>Day {d.day} · {d.student}</b><div className="small" style={{marginTop:5}}><Badge tone={d.status.includes("Signature")?"green":"amber"}>{d.status}</Badge></div></div>)}<Link className="button secondary" style={{display:"inline-block",marginTop:13}} href="/documentation">Open documentation</Link></Panel></div></Shell>}
+import { Role } from "@/generated/prisma";
+import { Badge, Card, Panel, Shell, Table } from "@/components/ui";
+import { prisma } from "@/lib/prisma";
+import { requireRole } from "@/lib/page-auth";
+
+function time(value: Date | null) {
+  return value ? new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" }).format(value) : "—";
+}
+
+export default async function Home() {
+  const { role, user, profile, student } = await requireRole([Role.STUDENT, Role.SUPERVISOR, Role.COORDINATOR]);
+  let cards: [string, string, string][] = [];
+  let attendanceRows: React.ReactNode[][] = [];
+  let reportRows: React.ReactNode[][] = [];
+
+  if (role === Role.STUDENT) {
+    const [recentAttendance, reportCount, placement] = await Promise.all([
+      student ? prisma.attendanceRecord.findMany({ where: { studentId: student.id }, orderBy: { date: "desc" }, take: 5, include: { student: { include: { user: true } } } }) : [],
+      student ? prisma.dailyDocumentation.count({ where: { studentId: student.id } }) : 0,
+      student ? prisma.ojtPlacement.findUnique({ where: { studentId: student.id }, include: { company: true } }) : null,
+    ]);
+    const allAttendance = student ? await prisma.attendanceRecord.findMany({ where: { studentId: student.id, timeIn: { not: null }, timeOut: { not: null } }, select: { timeIn: true, timeOut: true } }) : [];
+    const totalHours = allAttendance.reduce((sum, row) => sum + (row.timeOut!.getTime() - row.timeIn!.getTime()) / 3_600_000, 0);
+    cards = [["Recorded hours", totalHours.toFixed(1), "From complete attendance records"], ["Daily reports", String(reportCount), "Saved in your account"], ["Placement", placement?.status ?? "Not submitted", placement?.company.name ?? "Submit a host company"], ["Student profile", student ? "Complete" : "Needs details", student?.program ?? "Add your student number and program"]];
+    attendanceRows = recentAttendance.map((row) => [new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" }).format(row.date), time(row.timeIn), time(row.timeOut), <Badge tone={row.timeOut ? "green" : "amber"}>{row.timeOut ? row.status : "In progress"}</Badge>]);
+    const reports = student ? await prisma.dailyDocumentation.findMany({ where: { studentId: student.id }, include: { versions: { orderBy: { version: "desc" }, take: 1 } }, orderBy: { day: "desc" }, take: 5 }) : [];
+    reportRows = reports.map((report) => [String(report.day), report.versions[0]?.submittedAt ? new Intl.DateTimeFormat("en-PH", { dateStyle: "medium" }).format(report.versions[0].submittedAt) : "Draft", <Badge tone={report.status === "SIGNED" ? "green" : "blue"}>{report.status}</Badge>]);
+  } else if (role === Role.SUPERVISOR) {
+    const assignment = profile.supervisor;
+    const [assigned, pending, signed] = await Promise.all([
+      assignment ? prisma.ojtPlacement.count({ where: { companyId: assignment.companyId, supervisorId: profile.id, status: "APPROVED" } }) : 0,
+      assignment ? prisma.dailyDocumentation.count({ where: { status: "SUBMITTED", student: { placement: { companyId: assignment.companyId, supervisorId: profile.id } } } }) : 0,
+      assignment ? prisma.digitalSignature.count({ where: { signerId: profile.id } }) : 0,
+    ]);
+    cards = [["Assigned students", String(assigned), assignment?.company.name ?? "No company assignment"], ["Reports awaiting review", String(pending), "Submitted by assigned students"], ["Reports signed", String(signed), "Recorded signatures"], ["Signing authority", assignment?.canSign ? "Active" : "Unavailable", "Based on your company assignment"]];
+    const recent = assignment ? await prisma.dailyDocumentation.findMany({ where: { student: { placement: { companyId: assignment.companyId, supervisorId: profile.id } } }, include: { student: { include: { user: true, placement: { include: { company: true } } } } }, orderBy: { updatedAt: "desc" }, take: 5 }) : [];
+    reportRows = recent.map((report) => [report.student.user.name, `Day ${report.day}`, <Badge tone={report.status === "SIGNED" ? "green" : report.status === "SUBMITTED" ? "amber" : "blue"}>{report.status}</Badge>]);
+  } else {
+    const [students, pendingPlacements, attendanceToday, reportsPending] = await Promise.all([
+      prisma.student.count({ where: { user: { role: Role.STUDENT, active: true } } }),
+      prisma.ojtPlacement.count({ where: { status: "PENDING" } }),
+      prisma.attendanceRecord.count({ where: { date: new Date(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date()) + "T00:00:00.000Z") } }),
+      prisma.dailyDocumentation.count({ where: { status: "SUBMITTED" } }),
+    ]);
+    cards = [["Students", String(students), "Registered student profiles"], ["Placement requests", String(pendingPlacements), "Awaiting coordinator decision"], ["Attendance today", String(attendanceToday), "Saved attendance records"], ["Reports to review", String(reportsPending), "Submitted reports"]];
+    const recentAttendance = await prisma.attendanceRecord.findMany({ where: { student: { user: { role: Role.STUDENT, active: true } } }, orderBy: { date: "desc" }, include: { student: { include: { user: true, placement: { include: { company: true } } } } }, take: 5 });
+    attendanceRows = recentAttendance.map((row) => [row.student.user.name, row.student.placement?.company.name ?? "—", new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" }).format(row.date), time(row.timeIn), <Badge tone={row.status === "ABSENT" ? "red" : row.status === "LATE" ? "amber" : "green"}>{row.status}</Badge>]);
+    const recentReports = await prisma.dailyDocumentation.findMany({ where: { status: { in: ["SUBMITTED", "APPROVED", "SIGNED"] } }, include: { student: { include: { user: true } }, versions: { orderBy: { version: "desc" }, take: 1 } }, orderBy: { updatedAt: "desc" }, take: 5 });
+    reportRows = recentReports.map((report) => [report.student.user.name, `Day ${report.day}`, <Badge tone={report.status === "SIGNED" ? "green" : report.status === "SUBMITTED" ? "amber" : "blue"}>{report.status}</Badge>]);
+  }
+
+  return (
+    <Shell role={role} name={user.name} active="Dashboard">
+      <div className="heading-row"><div><div className="eyebrow">{role.toLowerCase()} workspace</div><h1 className="page-title">Welcome, {user.name.split(" ")[0]}</h1><div className="subtle">Your OJT activity, backed by your account records.</div></div></div>
+      {role === Role.STUDENT && !student && <div className="notice warn">Complete your student profile before submitting placement, attendance, or reports. <Link href="/profile"><b>Open profile</b></Link></div>}
+      <div className="cards">{cards.map(([label, value, note]) => <Card key={label} label={label} value={value} note={note} />)}</div>
+      <div className="grid-2">
+        {attendanceRows.length > 0 && <Panel title={role === Role.STUDENT ? "Recent attendance" : "Recent attendance records"}><Table headers={role === Role.STUDENT ? ["Date", "Time in", "Time out", "Status"] : ["Student", "Company", "Date", "Time in", "Status"]} rows={attendanceRows} /></Panel>}
+        <Panel title={role === Role.STUDENT ? "My recent reports" : role === Role.SUPERVISOR ? "Recent assigned reports" : "Recent reports"}>
+          {reportRows.length ? <Table headers={role === Role.STUDENT ? ["Day", "Submitted", "Status"] : ["Student", "Day", "Status"]} rows={reportRows} /> : <div className="empty">No reports have been submitted yet.</div>}
+          <Link className="button" style={{ display: "inline-block", marginTop: 14 }} href={role === Role.SUPERVISOR ? "/supervisor/signing" : "/documentation"}>{role === Role.SUPERVISOR ? "Review reports" : "Open documentation"}</Link>
+        </Panel>
+      </div>
+    </Shell>
+  );
+}

@@ -1,64 +1,61 @@
-# Secure OJT and Internship Monitoring System
+# OJT Monitor
 
-Academic prototype using Next.js App Router, TypeScript, Tailwind CSS, Supabase PostgreSQL/Auth, Prisma, and Node.js Ed25519/SHA-256.
+OJT Monitor is a Supabase Auth and PostgreSQL backed internship tracking application. It uses Next.js App Router, Prisma, and server-side authorization. The application does not provide simulated login or demo records.
 
-## Current implementation scope
+## Local setup
 
-This workspace was empty. It now contains a navigable Next.js demo with role-based sample dashboards, student profile/placement/attendance/documentation pages, supervisor review and signing, coordinator verification, reports, company approvals, audit and user views. Sample pages and the attendance scan are explicitly labeled demo data/simulation. Demo records are held in process memory and reset when the server restarts; they are not a substitute for database persistence. The Prisma schema and initial SQL migration describe the intended persistent data model and database access policies.
+Requirements: Node.js 20.9 or newer and npm.
 
-Demo login uses an HttpOnly role cookie for an academic walkthrough. It is not Supabase authentication and is not a production security boundary. Before deployment, connect the Supabase Auth flow, provision coordinator/supervisor roles administratively, and replace demo actions with database transactions that enforce authorization on each request. The database tables have RLS enabled in the migration; review policies against your institution's final workflow before applying.
+1. Install dependencies and copy `.env.example` to `.env.local`.
+2. Set the Supabase project URL and publishable key. Set `DATABASE_URL` to the Supabase session pooler URI and `DIRECT_URL` to the direct database URI (or the connection string recommended for Prisma by Supabase).
+3. Set `SIGNING_PRIVATE_KEY_PEM` and `SIGNING_KEY_ID` on the server. Generate a development key pair with `node scripts/generate-signing-key.mjs`; the public key is derived for supervisor setup and snapshotted with each signature. Keep the private key out of source control and never expose it with a `NEXT_PUBLIC_` prefix.
+4. Generate Prisma Client and apply pending migrations:
 
-## Requirements
+   ```sh
+   npx prisma generate
+   npm run db:migrate
+   ```
 
-- Node.js 20.9 or newer and npm
-- Supabase project for persistent authentication/database use
+5. Start the app with `npm run dev` and open `http://localhost:3000`.
 
-## Setup
+The migration script reads the database URLs from `.env.local` without printing them. When `DATABASE_URL` is a Supabase session pooler URI on port 5432, it uses that pooler for migrations so schema operations work on IPv4-only networks. Check migration status with `npm run db:status`.
 
-```sh
-npm install
-cp .env.example .env.local
+Do not commit `.env.local`. Rotate any database password that has been shared outside a secret manager.
+
+## Accounts and access
+
+Student accounts register with a unique email and student number, program, and a password of at least 10 characters containing uppercase, lowercase, a number, and a special character. Supabase Auth stores the credentials; the Auth trigger creates the student profile and student record. Additional accounts can register with distinct emails and student numbers. Email confirmation behavior is controlled in Supabase Auth settings.
+
+All self-service sign-ups receive the Student role. To bootstrap the first coordinator, an administrator must assign that role to a verified account in the Supabase SQL Editor:
+
+```sql
+update public.user_profiles
+set role = 'COORDINATOR'::"Role"
+where lower(email) = lower('YOUR_VERIFIED_EMAIL');
 ```
 
-For the walkthrough, set `DEMO_MODE=true`. For Supabase, fill in `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `DATABASE_URL` (pooled connection), and `DIRECT_URL` (direct connection). Supabase Auth trigger creates new accounts with the Student role. Assign Coordinator and Supervisor roles only through trusted administrative SQL/tooling, and create matching Student/Company/SupervisorAssignment rows.
+Coordinators can create company records, assign registered accounts as company supervisors, set whether they may sign, and review placement requests. Coordinator access itself is not self-service.
 
-Generate a local Ed25519 keypair:
+## Persisted workflows
 
-```sh
-node scripts/generate-signing-key.mjs
-```
+- Supabase email/password registration, sign-in, session validation, and sign-out.
+- Student profile onboarding and updates.
+- Placement requests, coordinator decisions, and company supervisor assignment.
+- Server-timestamped manual web attendance with a per-student, per-day uniqueness constraint.
+- Versioned daily reports, supervisor review/return, approval records, and immutable signed versions.
+- Ed25519 signatures over canonical report data, SHA-256 digests, and coordinator verification against the registered supervisor public key.
+- Audit events for key account and workflow actions.
 
-Copy the PEM values from the ignored `.signing-keys.local` into server-only environment secrets. Never prefix signing keys with `NEXT_PUBLIC_`. Production should use a managed KMS/HSM, key rotation, key revocation records, and a controlled public-key trust registry.
+## Known hardware and service integrations
 
-Apply schema and migration:
+Attendance is a real database record but is currently a manual web check-in. No fingerprint reader or biometric provider is connected, and manual entries are explicitly marked unverified. Secure attachment storage is not configured. Email confirmation and delivery depend on the Supabase Auth email provider settings.
 
-```sh
-npx prisma generate
-npx prisma migrate deploy
-```
+The server holds one Ed25519 signing key and records the authorized supervisor who approved and signed a report. This protects signed report content and verifies it against the trusted application key; it does not prove that the supervisor personally controlled that private key. Use per-supervisor managed keys or a KMS/HSM before relying on individual non-repudiation.
 
-Or during local schema iteration use `npx prisma migrate dev --name init`. The SQL migration includes a Supabase Auth profile trigger and starter RLS policies. Test policies with separate student, supervisor, and coordinator accounts before using real records. The `public_key_pem` is a public key; private signing keys are never a database field.
-
-Start the app:
-
-```sh
-npm run dev
-```
-
-Open `http://localhost:3000`, then choose a demo role. Demo login is not a real authentication mechanism. HTTPS must be configured at the production hosting layer.
-
-## Signature design
-
-`src/lib/signing.ts` builds a fixed-order JSON representation of a document version, hashes it with SHA-256, and signs it using Node's Ed25519 implementation. The signing key is read from a server environment variable. The verification endpoint requires a coordinator demo session, reloads the exact in-memory version, recomputes the digest and checks key ID, signer authorization, and signature. Supported outcomes are VALID, DOCUMENT CHANGED, INVALID SIGNATURE, SIGNER NOT AUTHORIZED, SIGNING KEY NOT TRUSTED, and VERIFICATION ERROR. A VALID result establishes payload integrity and key trust, not a person's real-world identity.
-
-The current demo store is not durable, and the second sample report has no cryptographic signature initially. Sign a report after reviewing it to exercise verification. In production, persist each document version and signature in one database transaction, make signed versions immutable with database constraints/privileges, store trusted public keys with signer authorization history, and write audit events transactionally.
-
-## Tests and checks
+## Checks
 
 ```sh
 npm test
 npm run lint
 npm run build
 ```
-
-The signature test suite covers valid signatures, content modification, invalid signatures, and an unauthorized signer. The fingerprint page only simulates the user action; it does not read biometric hardware or store biometric data. Attendance timestamps, configurable schedules, persistent duplicate prevention, private attachment storage, full version persistence, and complete RLS-backed role workflows require backend integration before real use.

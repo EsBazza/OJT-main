@@ -1,18 +1,202 @@
-generator client { provider = "prisma-client-js" }
-datasource db { provider = "postgresql" url = env("DATABASE_URL") directUrl = env("DIRECT_URL") }
-enum Role { STUDENT SUPERVISOR COORDINATOR }
-enum PlacementStatus { PENDING APPROVED REJECTED }
-enum AttendanceStatus { PRESENT LATE ABSENT }
-enum DocumentStatus { DRAFT SUBMITTED RETURNED APPROVED SIGNED COORDINATOR_REVIEWED }
-model UserProfile { id String @id @default(uuid()) authUserId String @unique @map("auth_user_id") email String @unique name String role Role active Boolean @default(true) createdAt DateTime @default(now()) @map("created_at") student Student? supervisor SupervisorAssignment? @@map("user_profiles") }
-model Student { id String @id @default(uuid()) userId String @unique @map("user_id") studentNumber String @unique @map("student_number") program String user UserProfile @relation(fields:[userId],references:[id]) placement OjtPlacement? attendance AttendanceRecord[] documents DailyDocumentation[] @@map("students") }
-model Company { id String @id @default(uuid()) name String address String? approved Boolean @default(false) createdAt DateTime @default(now()) placements OjtPlacement[] supervisors SupervisorAssignment[] @@map("companies") }
-model SupervisorAssignment { id String @id @default(uuid()) userId String @unique @map("user_id") companyId String @map("company_id") canSign Boolean @default(true) publicKeyPem String? @map("public_key_pem") keyId String? @map("key_id") active Boolean @default(true) user UserProfile @relation(fields:[userId],references:[id]) company Company @relation(fields:[companyId],references:[id]) @@map("supervisor_assignments") }
-model OjtPlacement { id String @id @default(uuid()) studentId String @unique @map("student_id") companyId String @map("company_id") supervisorId String? @map("supervisor_id") status PlacementStatus @default(PENDING) submittedAt DateTime @default(now()) decidedAt DateTime? student Student @relation(fields:[studentId],references:[id]) company Company @relation(fields:[companyId],references:[id]) @@map("ojt_placements") }
-model BiometricEnrollment { id String @id @default(uuid()) studentId String @unique @map("student_id") providerReference String @map("provider_reference") createdAt DateTime @default(now()) @@map("biometric_enrollments") }
-model AttendanceRecord { id String @id @default(uuid()) studentId String @map("student_id") date DateTime @db.Date status AttendanceStatus timeIn DateTime? @map("time_in") timeOut DateTime? @map("time_out") deviceId String @map("device_id") method String verification Boolean @default(false) student Student @relation(fields:[studentId],references:[id]) @@unique([studentId,date]) @@map("attendance_records") }
-model DailyDocumentation { id String @id @default(uuid()) studentId String @map("student_id") day Int status DocumentStatus @default(DRAFT) createdAt DateTime @default(now()) updatedAt DateTime @updatedAt student Student @relation(fields:[studentId],references:[id]) versions DocumentVersion[] @@unique([studentId,day]) @@map("daily_documentations") }
-model DocumentVersion { id String @id @default(uuid()) documentationId String @map("documentation_id") version Int activities String skills String challenges String attachments Json? submittedAt DateTime? immutable Boolean @default(false) documentation DailyDocumentation @relation(fields:[documentationId],references:[id]) approvals ApprovalRecord[] signatures DigitalSignature[] @@unique([documentationId,version]) @@map("document_versions") }
-model ApprovalRecord { id String @id @default(uuid()) versionId String @map("version_id") supervisorId String @map("supervisor_id") decision String remarks String? createdAt DateTime @default(now()) version DocumentVersion @relation(fields:[versionId],references:[id]) @@map("approval_records") }
-model DigitalSignature { id String @id @default(uuid()) versionId String @unique @map("version_id") signerId String @map("signer_id") digest String signature String keyId String @map("key_id") signedAt DateTime @default(now()) version DocumentVersion @relation(fields:[versionId],references:[id]) @@map("digital_signatures") }
-model AuditLog { id String @id @default(uuid()) actorId String? @map("actor_id") action String targetType String @map("target_type") targetId String @map("target_id") details Json? createdAt DateTime @default(now()) @@map("audit_logs") }
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  STUDENT
+  SUPERVISOR
+  COORDINATOR
+}
+
+enum PlacementStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+}
+
+enum DocumentStatus {
+  DRAFT
+  SUBMITTED
+  RETURNED
+  APPROVED
+  SIGNED
+  COORDINATOR_REVIEWED
+}
+
+model UserProfile {
+  id         String                @id @default(uuid())
+  authUserId String                @unique @map("auth_user_id")
+  email      String                @unique
+  name       String
+  role       Role
+  active     Boolean               @default(true)
+  createdAt  DateTime              @default(now()) @map("created_at")
+  student    Student?
+  supervisor SupervisorAssignment?
+
+  @@map("user_profiles")
+}
+
+model Student {
+  id            String               @id @default(uuid())
+  userId        String               @unique @map("user_id")
+  studentNumber String               @unique @map("student_number")
+  program       String
+  user          UserProfile          @relation(fields: [userId], references: [id])
+  placement     OjtPlacement?
+  attendance    AttendanceRecord[]
+  documents     DailyDocumentation[]
+
+  @@map("students")
+}
+
+model Company {
+  id          String                 @id @default(uuid())
+  name        String
+  address     String?
+  approved    Boolean                @default(false)
+  createdAt   DateTime               @default(now()) @map("created_at")
+  placements  OjtPlacement[]
+  supervisors SupervisorAssignment[]
+
+  @@map("companies")
+}
+
+model SupervisorAssignment {
+  id           String      @id @default(uuid())
+  userId       String      @unique @map("user_id")
+  companyId    String      @map("company_id")
+  canSign      Boolean     @default(true) @map("can_sign")
+  publicKeyPem String?     @map("public_key_pem")
+  keyId        String?     @map("key_id")
+  active       Boolean     @default(true)
+  user         UserProfile @relation(fields: [userId], references: [id])
+  company      Company     @relation(fields: [companyId], references: [id])
+
+  @@map("supervisor_assignments")
+}
+
+model OjtPlacement {
+  id           String          @id @default(uuid())
+  studentId    String          @unique @map("student_id")
+  companyId    String          @map("company_id")
+  supervisorId String?         @map("supervisor_id")
+  status       PlacementStatus @default(PENDING)
+  submittedAt  DateTime        @default(now()) @map("submitted_at")
+  decidedAt    DateTime?       @map("decided_at")
+  student      Student         @relation(fields: [studentId], references: [id])
+  company      Company         @relation(fields: [companyId], references: [id])
+
+  @@map("ojt_placements")
+}
+
+model BiometricEnrollment {
+  id                String   @id @default(uuid())
+  studentId         String   @unique @map("student_id")
+  providerReference String   @map("provider_reference")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@map("biometric_enrollments")
+}
+
+model AttendanceRecord {
+  id           String           @id @default(uuid())
+  studentId    String           @map("student_id")
+  date         DateTime         @db.Date
+  status       AttendanceStatus
+  timeIn       DateTime?        @map("time_in")
+  timeOut      DateTime?        @map("time_out")
+  deviceId     String           @map("device_id")
+  method       String
+  verification Boolean          @default(false)
+  student      Student          @relation(fields: [studentId], references: [id])
+
+  @@unique([studentId, date])
+  @@map("attendance_records")
+}
+
+model DailyDocumentation {
+  id        String            @id @default(uuid())
+  studentId String            @map("student_id")
+  day       Int
+  status    DocumentStatus    @default(DRAFT)
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+  student   Student           @relation(fields: [studentId], references: [id])
+  versions  DocumentVersion[]
+
+  @@unique([studentId, day])
+  @@map("daily_documentations")
+}
+
+model DocumentVersion {
+  id              String             @id @default(uuid())
+  documentationId String             @map("documentation_id")
+  version         Int
+  activities      String
+  skills          String
+  challenges      String
+  attachments     Json?
+  submittedAt     DateTime?          @map("submitted_at")
+  immutable       Boolean            @default(false)
+  documentation   DailyDocumentation @relation(fields: [documentationId], references: [id])
+  approvals       ApprovalRecord[]
+  signatures      DigitalSignature[]
+
+  @@unique([documentationId, version])
+  @@map("document_versions")
+}
+
+model ApprovalRecord {
+  id                 String          @id @default(uuid())
+  versionId          String          @map("version_id")
+  supervisorId       String          @map("supervisor_id")
+  approvedByName     String          @map("approved_by_name")
+  companyNameSnapshot String         @map("company_name_snapshot")
+  companyIdSnapshot  String          @map("company_id_snapshot")
+  decision           String
+  remarks            String?
+  createdAt          DateTime        @default(now()) @map("created_at")
+  version            DocumentVersion @relation(fields: [versionId], references: [id])
+
+  @@map("approval_records")
+}
+
+model DigitalSignature {
+  id        String          @id @default(uuid())
+  versionId String          @unique @map("version_id")
+  signerId  String          @map("signer_id")
+  digest    String
+  signature String
+  keyId     String          @map("key_id")
+  publicKeyPem String       @map("public_key_pem")
+  signedAt  DateTime        @default(now()) @map("signed_at")
+  version   DocumentVersion @relation(fields: [versionId], references: [id])
+
+  @@map("digital_signatures")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?  @map("actor_id")
+  action     String
+  targetType String   @map("target_type")
+  targetId   String   @map("target_id")
+  details    Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("audit_logs")
+}
