@@ -1,27 +1,80 @@
+import type { Metadata } from "next";
+import { BadgeCheck } from "lucide-react";
+import Link from "next/link";
 import { PlacementStatus, Role } from "@/generated/prisma";
-import { decidePlacement } from "@/app/actions";
-import { Badge, Panel, Shell } from "@/components/ui";
+import { decidePlacement } from "@/app/actions/coordinator";
+import { SubmitButton } from "@/components/form";
+import { Badge, DefinitionGrid, EmptyState, Notice, PageHeader, Panel, Shell } from "@/components/ui";
+import { formatDateTime } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/page-auth";
+
+export const metadata: Metadata = { title: "Placements" };
+
+const errors: Record<string, string> = {
+  supervisor: "Choose an active supervisor assigned to this company before approving.",
+  invalid: "Check the schedule: use a 24-hour start time (for example 08:00) and a grace period of 0–120 minutes.",
+  stale: "This request was already decided or changed. The list has been refreshed.",
+};
 
 export default async function Companies({ searchParams }: { searchParams: Promise<{ error?: string; success?: string }> }) {
   const { role, user } = await requireRole([Role.COORDINATOR]);
   const query = await searchParams;
   const placements = await prisma.ojtPlacement.findMany({ where: { status: PlacementStatus.PENDING }, include: { student: { include: { user: true } }, company: true }, orderBy: { submittedAt: "asc" } });
   const companyIds = [...new Set(placements.map((placement) => placement.companyId))];
-  const supervisors = await prisma.supervisorAssignment.findMany({ where: { companyId: { in: companyIds }, active: true }, include: { user: true } });
-  const supervisorsByCompany = new Map<string, typeof supervisors>();
-  for (const supervisor of supervisors) supervisorsByCompany.set(supervisor.companyId, [...(supervisorsByCompany.get(supervisor.companyId) ?? []), supervisor]);
-  return <Shell role={role} name={user.name} active="Company approvals">
-    <div className="heading-row"><div><div className="eyebrow">Coordinator workspace</div><h1 className="page-title">Placement approvals</h1><p className="subtle">Review real requests submitted by students and assign an active company supervisor.</p></div></div>
-    {query.error && <div className="notice error">{query.error === "supervisor" ? "Choose an active supervisor assigned to this company before approval." : "This request changed or could not be processed. Refresh the list."}</div>}
-    {query.success && <div className="notice success">Placement decision saved.</div>}
-    {placements.length ? placements.map((placement) => {
-      const companySupervisors = supervisorsByCompany.get(placement.companyId) ?? [];
-      return <Panel key={placement.id} title={placement.company.name}><div className="form-grid"><div><span className="small">Student</span><div><b>{placement.student.user.name}</b> · {placement.student.studentNumber}</div></div><div><span className="small">Program</span><div><b>{placement.student.program}</b></div></div><div><span className="small">Address</span><div><b>{placement.company.address ?? "Not provided"}</b></div></div><div><span className="small">Submitted</span><div><b>{new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" }).format(placement.submittedAt)}</b></div></div></div><p>Status <Badge tone="amber">PENDING</Badge></p>
-        <form action={decidePlacement} className="actions"><input type="hidden" name="placementId" value={placement.id} /><div className="field"><label htmlFor={`supervisor-${placement.id}`}>Assigned supervisor</label><select id={`supervisor-${placement.id}`} name="supervisorId" defaultValue=""><option value="">Choose supervisor</option>{companySupervisors.map((assignment) => <option key={assignment.userId} value={assignment.userId}>{assignment.user.name}{assignment.canSign ? " · Can sign" : " · Review only"}</option>)}</select></div><button className="button" name="decision" value="approve" disabled={!companySupervisors.length}>Approve</button><button className="button secondary" name="decision" value="reject">Reject</button></form>
-        {!companySupervisors.length && <p className="small">No supervisor has been assigned to this company yet. Configure a supervisor account before approval.</p>}
-      </Panel>;
-    }) : <Panel title="Pending requests"><div className="empty">There are no pending placement requests.</div></Panel>}
-  </Shell>;
+  const supervisors = await prisma.supervisorAssignment.findMany({ where: { companyId: { in: companyIds }, active: true, user: { active: true, role: Role.SUPERVISOR } }, include: { user: true } });
+  const proposedAddresses = await prisma.auditLog.findMany({ where: { action: "PLACEMENT_SUBMITTED", targetId: { in: placements.map((placement) => placement.studentId) } }, orderBy: { createdAt: "desc" } });
+  const addressFor = (studentId: string) => {
+    const details = proposedAddresses.find((entry) => entry.targetId === studentId)?.details as { proposedAddress?: string } | null;
+    return details?.proposedAddress;
+  };
+
+  return (
+    <Shell role={role} name={user.name}>
+      <PageHeader eyebrow="Coordinator" title="Placement requests" description="Approve each request with a supervisor and work schedule, or reject it." actions={<Link className="button button-secondary" href="/users">Manage companies & supervisors</Link>} />
+      {query.error && <Notice tone="error">{errors[query.error] ?? "The request could not be processed."}</Notice>}
+      {query.success && <Notice tone="success">{query.success === "rejected" ? "Placement rejected. The student can submit another company." : "Placement approved."}</Notice>}
+
+      {placements.length ? placements.map((placement) => {
+        const options = supervisors.filter((supervisor) => supervisor.companyId === placement.companyId);
+        const proposed = addressFor(placement.studentId);
+        return (
+          <Panel key={placement.id} title={placement.company.name} actions={placement.company.approved ? <Badge tone="green">Known company</Badge> : <Badge tone="amber">New company</Badge>}>
+            <DefinitionGrid items={[
+              ["Student", `${placement.student.user.name} · ${placement.student.studentNumber}`],
+              ["Program", placement.student.program],
+              ["Company address", placement.company.address ?? "Not provided"],
+              ...(proposed && proposed !== placement.company.address ? [["Address given by student", proposed] as [string, string]] : []),
+              ["Submitted", formatDateTime(placement.submittedAt)],
+            ]} />
+            <form action={decidePlacement} style={{ marginTop: 16 }}>
+              <input type="hidden" name="placementId" value={placement.id} />
+              <div className="filters">
+                <div className="field">
+                  <label htmlFor={`supervisor-${placement.id}`}>Supervisor</label>
+                  <select id={`supervisor-${placement.id}`} name="supervisorId" defaultValue="">
+                    <option value="">Choose supervisor</option>
+                    {options.map((assignment) => <option key={assignment.userId} value={assignment.userId}>{assignment.user.name}{assignment.canSign ? " · can sign" : " · review only"}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor={`shift-${placement.id}`}>Shift starts</label>
+                  <input id={`shift-${placement.id}`} name="shiftStart" type="time" defaultValue="08:00" />
+                </div>
+                <div className="field">
+                  <label htmlFor={`grace-${placement.id}`}>Grace (minutes)</label>
+                  <input id={`grace-${placement.id}`} name="graceMinutes" type="number" min={0} max={120} defaultValue={15} inputMode="numeric" />
+                </div>
+              </div>
+              {!options.length && <p className="small" style={{ marginTop: 8 }}>No supervisor is assigned to this company yet. <Link href="/users">Assign one</Link> before approving.</p>}
+              <div className="actions">
+                <SubmitButton name="decision" value="approve" disabled={!options.length} pendingText="Approving…">Approve</SubmitButton>
+                <SubmitButton name="decision" value="reject" variant="secondary" pendingText="Rejecting…">Reject</SubmitButton>
+              </div>
+            </form>
+          </Panel>
+        );
+      }) : <Panel><EmptyState icon={BadgeCheck} title="No pending requests">New placement requests from students will appear here.</EmptyState></Panel>}
+    </Shell>
+  );
 }

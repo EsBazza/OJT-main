@@ -2,7 +2,38 @@
   "name": "secure-ojt-monitor",
   "version": "0.1.0",
   "private": true,
-  "scripts": {"postinstall":"prisma generate","predev":"prisma generate","dev":"next dev","prebuild":"prisma generate","build":"next build","start":"next start","db:migrate":"node scripts/prisma-env.mjs migrate deploy","db:status":"node scripts/prisma-env.mjs migrate status","lint":"tsc --noEmit","test":"node scripts/run-tests.mjs"},
-  "dependencies": {"@prisma/client":"^6.7.0","@tailwindcss/postcss":"^4.1.4","@supabase/ssr":"^0.6.1","@supabase/supabase-js":"^2.49.4","next":"^15.3.1","react":"^19.0.0","react-dom":"^19.0.0","zod":"^3.24.3"},
-  "devDependencies": {"@types/node":"^22.14.1","@types/react":"^19.0.12","@types/react-dom":"^19.0.4","prisma":"^6.7.0","tailwindcss":"^4.1.4","typescript":"^5.8.3","tsx":"^4.19.3"}
+  "scripts": {
+    "postinstall": "prisma generate",
+    "predev": "prisma generate",
+    "dev": "next dev",
+    "prebuild": "prisma generate",
+    "build": "next build",
+    "start": "next start",
+    "db:migrate": "node scripts/prisma-env.mjs migrate deploy",
+    "db:status": "node scripts/prisma-env.mjs migrate status",
+    "lint": "tsc --noEmit",
+    "test": "node scripts/run-tests.mjs"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.7.0",
+    "@supabase/ssr": "^0.6.1",
+    "@supabase/supabase-js": "^2.49.4",
+    "@tailwindcss/postcss": "^4.1.4",
+    "lucide-react": "^0.468.0",
+    "next": "^15.3.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "^0.169.0",
+    "zod": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "@types/react": "^19.0.12",
+    "@types/react-dom": "^19.0.4",
+    "@types/three": "^0.169.0",
+    "prisma": "^6.7.0",
+    "tailwindcss": "^4.1.4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
+  }
 }

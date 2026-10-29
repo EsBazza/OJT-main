@@ -95,6 +95,8 @@ model OjtPlacement {
   companyId    String          @map("company_id")
   supervisorId String?         @map("supervisor_id")
   status       PlacementStatus @default(PENDING)
+  shiftStart   String          @default("08:00") @map("shift_start")
+  graceMinutes Int             @default(15) @map("grace_minutes")
   submittedAt  DateTime        @default(now()) @map("submitted_at")
   decidedAt    DateTime?       @map("decided_at")
   student      Student         @relation(fields: [studentId], references: [id])
@@ -129,16 +131,18 @@ model AttendanceRecord {
 }
 
 model DailyDocumentation {
-  id        String            @id @default(uuid())
-  studentId String            @map("student_id")
-  day       Int
-  status    DocumentStatus    @default(DRAFT)
-  createdAt DateTime          @default(now()) @map("created_at")
-  updatedAt DateTime          @updatedAt @map("updated_at")
-  student   Student           @relation(fields: [studentId], references: [id])
-  versions  DocumentVersion[]
+  id         String            @id @default(uuid())
+  studentId  String            @map("student_id")
+  day        Int
+  reportDate DateTime?         @map("report_date") @db.Date
+  status     DocumentStatus    @default(DRAFT)
+  createdAt  DateTime          @default(now()) @map("created_at")
+  updatedAt  DateTime          @updatedAt @map("updated_at")
+  student    Student           @relation(fields: [studentId], references: [id])
+  versions   DocumentVersion[]
 
   @@unique([studentId, day])
+  @@unique([studentId, reportDate])
   @@map("daily_documentations")
 }
 
@@ -161,30 +165,30 @@ model DocumentVersion {
 }
 
 model ApprovalRecord {
-  id                 String          @id @default(uuid())
-  versionId          String          @map("version_id")
-  supervisorId       String          @map("supervisor_id")
-  approvedByName     String          @map("approved_by_name")
-  companyNameSnapshot String         @map("company_name_snapshot")
-  companyIdSnapshot  String          @map("company_id_snapshot")
-  decision           String
-  remarks            String?
-  createdAt          DateTime        @default(now()) @map("created_at")
-  version            DocumentVersion @relation(fields: [versionId], references: [id])
+  id                  String          @id @default(uuid())
+  versionId           String          @map("version_id")
+  supervisorId        String          @map("supervisor_id")
+  approvedByName      String          @map("approved_by_name")
+  companyNameSnapshot String          @map("company_name_snapshot")
+  companyIdSnapshot   String          @map("company_id_snapshot")
+  decision            String
+  remarks             String?
+  createdAt           DateTime        @default(now()) @map("created_at")
+  version             DocumentVersion @relation(fields: [versionId], references: [id])
 
   @@map("approval_records")
 }
 
 model DigitalSignature {
-  id        String          @id @default(uuid())
-  versionId String          @unique @map("version_id")
-  signerId  String          @map("signer_id")
-  digest    String
-  signature String
-  keyId     String          @map("key_id")
-  publicKeyPem String       @map("public_key_pem")
-  signedAt  DateTime        @default(now()) @map("signed_at")
-  version   DocumentVersion @relation(fields: [versionId], references: [id])
+  id           String          @id @default(uuid())
+  versionId    String          @unique @map("version_id")
+  signerId     String          @map("signer_id")
+  digest       String
+  signature    String
+  keyId        String          @map("key_id")
+  publicKeyPem String          @map("public_key_pem")
+  signedAt     DateTime        @default(now()) @map("signed_at")
+  version      DocumentVersion @relation(fields: [versionId], references: [id])
 
   @@map("digital_signatures")
 }

@@ -1,30 +1,90 @@
-import { Role } from "@/generated/prisma";
-import { reviewReport, signApprovedReport } from "@/app/actions";
-import { Badge, Panel, Shell } from "@/components/ui";
+import type { Metadata } from "next";
+import { Check, CheckCheck, Undo2 } from "lucide-react";
+import { DocumentStatus, Role } from "@/generated/prisma";
+import { reviewReport } from "@/app/actions/supervisor";
+import { SubmitButton } from "@/components/form";
+import { EmptyState, Notice, PageHeader, Panel, Shell, StatusBadge, SuccessMark } from "@/components/ui";
+import { formatCalendarDate, formatDateTime } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/page-auth";
+import { SignForm } from "./sign-form";
+
+export const metadata: Metadata = { title: "Review & sign" };
+
+const errors: Record<string, string> = {
+  invalid: "The review request was incomplete.",
+  remarks: "Add remarks (at least 3 characters) so the student knows what to change.",
+  confirm: "Tick the confirmation box before signing.",
+  permission: "You are not authorized to act on this report.",
+  stale: "This report changed since you opened the page. Check the latest version below.",
+  signing: "The signature could not be saved. Confirm the signing key is configured on the server.",
+  "signing-key": "Your signing key does not match the server's trusted key. Ask your coordinator to update your supervisor access.",
+};
+
+const successes: Record<string, string> = { approved: "Report approved.", returned: "Report returned to the student with your remarks.", signed: "Report signed. It can no longer be changed." };
+
+function Section({ title, current, previous }: { title: string; current: string; previous?: string }) {
+  const changed = previous !== undefined && previous !== current;
+  return (
+    <div>
+      <h3>{title}{changed && <span className="changed">Changed</span>}</h3>
+      <p className="report-body">{current}</p>
+      {changed && <details className="previous"><summary>Show previous version</summary><div>{previous}</div></details>}
+    </div>
+  );
+}
 
 export default async function Signing({ searchParams }: { searchParams: Promise<{ success?: string; error?: string }> }) {
   const { role, user, profile } = await requireRole([Role.SUPERVISOR]);
   const query = await searchParams;
-  const assignment = profile.supervisor;
-  const reports = assignment ? await prisma.dailyDocumentation.findMany({ where: { student: { placement: { companyId: assignment.companyId, supervisorId: profile.id } } }, include: { student: { include: { user: true, placement: { include: { company: true } } } }, versions: { orderBy: { version: "desc" }, take: 1, include: { approvals: { orderBy: { createdAt: "desc" }, take: 1 }, signatures: true } } }, orderBy: { updatedAt: "desc" } }) : [];
-  const messages: Record<string, string> = { invalid: "The report request was incomplete.", permission: "You are not authorized to review this report.", stale: "This report has already changed. Refresh the page and check its status.", signing: "The signature could not be saved. Confirm the signing key is configured on the server.", "signing-key": "Your registered supervisor key does not match the server signing key. Contact the coordinator before signing.", "no-assignment": "Your supervisor account has no active signing assignment." };
-  return <Shell role={role} name={user.name} active="Review & signing">
-    <div className="heading-row"><div><div className="eyebrow">Supervisor workspace</div><h1 className="page-title">Review and digital signing</h1><p className="subtle">Review only reports assigned to your company. Approval and signing are separately recorded.</p></div></div>
-    {query.error && <div className="notice error">{messages[query.error] ?? "The action could not be completed."}</div>}
-    {query.success && <div className="notice success">{query.success === "signed" ? "Report signed and saved." : "Review decision saved."}</div>}
-    {!assignment && <div className="notice warn">{messages["no-assignment"]}</div>}
-    {assignment && (reports.length ? reports.map((report) => {
-      const version = report.versions[0];
-      if (!version) return null;
-      const canReview = report.status === "SUBMITTED" && !version.immutable && version.signatures.length === 0;
-      const canSign = assignment.canSign && report.status === "APPROVED" && !version.immutable && version.signatures.length === 0;
-      return <Panel key={report.id} title={`${report.student.user.name} · Day ${report.day} · Version ${version.version}`}><div className="small">{report.student.placement?.company.name ?? "No company"} · Student number {report.student.studentNumber}</div><h3>Activities</h3><p>{version.activities}</p><div className="form-grid"><div><span className="small">Skills</span><p>{version.skills}</p></div><div><span className="small">Challenges</span><p>{version.challenges}</p></div></div><p>Status <Badge tone={report.status === "SIGNED" ? "green" : report.status === "SUBMITTED" ? "amber" : "blue"}>{report.status}</Badge></p>{version.approvals[0]?.remarks && <div className="notice">Latest remarks: {version.approvals[0].remarks}</div>}
-        {canReview && <form action={reviewReport}><input type="hidden" name="versionId" value={version.id} /><div className="field"><label htmlFor={`remarks-${version.id}`}>Review remarks</label><textarea id={`remarks-${version.id}`} name="remarks" maxLength={2000} /></div><div className="actions"><button className="button secondary" name="decision" value="return">Return for correction</button><button className="button" name="decision" value="approve">Approve report</button></div></form>}
-        {canSign && <form action={signApprovedReport} className="actions"><input type="hidden" name="versionId" value={version.id} /><button className="button">Sign approved version</button><span className="small">Ed25519 signature is stored with the report version.</span></form>}
-        {report.status === "APPROVED" && !assignment.canSign && <div className="notice warn">Your account can review but is not authorized to sign.</div>}
-      </Panel>;
-    }) : <Panel title="Assigned reports"><div className="empty">No reports have been submitted by your assigned students.</div></Panel>)}
-  </Shell>;
+  const assignment = profile.supervisor?.active ? profile.supervisor : null;
+  const statuses = assignment?.canSign ? [DocumentStatus.SUBMITTED, DocumentStatus.APPROVED] : [DocumentStatus.SUBMITTED];
+  const reports = assignment ? await prisma.dailyDocumentation.findMany({
+    where: { status: { in: statuses }, student: { placement: { companyId: assignment.companyId, supervisorId: profile.id } } },
+    include: { student: { include: { user: true } }, versions: { orderBy: { version: "desc" }, take: 2 } },
+    orderBy: [{ status: "desc" }, { updatedAt: "asc" }],
+    take: 50,
+  }) : [];
+
+  return (
+    <Shell role={role} name={user.name}>
+      <PageHeader eyebrow="Supervisor" title="Review & sign" description="Approve or return each report, then sign approved reports. Only the latest version can be reviewed." />
+      {query.error && <Notice tone="error">{errors[query.error] ?? "The action could not be completed."}</Notice>}
+      {query.success === "signed" && <Panel><SuccessMark variant="seal" title="Report signed">The report is now sealed and can no longer be changed.</SuccessMark></Panel>}
+      {query.success && query.success !== "signed" && <Notice tone="success">{successes[query.success] ?? "Saved."}</Notice>}
+      {!assignment && <Notice tone="warn" title="No company assignment">Your account is not assigned to a company yet. Contact your OJT coordinator.</Notice>}
+      {assignment && !assignment.canSign && <Notice tone="info">You have review-only access. A signing supervisor at your company signs approved reports.</Notice>}
+
+      {assignment && (reports.length ? reports.map((report) => {
+        const [version, previous] = report.versions;
+        if (!version) return null;
+        const label = `${report.student.user.name}'s Day ${report.day} report`;
+        return (
+          <Panel key={report.id} title={`${report.student.user.name} · Day ${report.day}`} actions={<StatusBadge status={report.status} />}>
+            <p className="small">{report.reportDate ? `${formatCalendarDate(report.reportDate)} · ` : ""}Student no. {report.student.studentNumber} · Version {version.version}, submitted {formatDateTime(version.submittedAt)}</p>
+            <Section title="Activities" current={version.activities} previous={previous?.activities} />
+            <div className="form-grid">
+              <Section title="Skills" current={version.skills} previous={previous?.skills} />
+              <Section title="Challenges" current={version.challenges} previous={previous?.challenges} />
+            </div>
+            {report.status === DocumentStatus.SUBMITTED && (
+              <form action={reviewReport} className="stack" style={{ marginTop: 16 }}>
+                <input type="hidden" name="versionId" value={version.id} />
+                <div className="field">
+                  <label htmlFor={`remarks-${version.id}`}>Remarks</label>
+                  <textarea id={`remarks-${version.id}`} name="remarks" maxLength={2000} aria-describedby={`remarks-${version.id}-hint`} />
+                  <p className="field-hint" id={`remarks-${version.id}-hint`}>Required when returning a report. Optional when approving.</p>
+                </div>
+                <div className="actions" style={{ marginTop: 0 }}>
+                  <SubmitButton name="decision" value="approve" pendingText="Approving…"><Check aria-hidden="true" size={18} />Approve</SubmitButton>
+                  <SubmitButton name="decision" value="return" variant="secondary" pendingText="Returning…"><Undo2 aria-hidden="true" size={18} />Return for changes</SubmitButton>
+                </div>
+              </form>
+            )}
+            {report.status === DocumentStatus.APPROVED && assignment.canSign && <SignForm versionId={version.id} label={label} />}
+          </Panel>
+        );
+      }) : <Panel><EmptyState icon={CheckCheck} title="Nothing to review">New reports from your assigned students will appear here.</EmptyState></Panel>)}
+    </Shell>
+  );
 }

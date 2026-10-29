@@ -1,30 +1,69 @@
-import { AttendanceStatus, Role } from "@/generated/prisma";
-import { Badge, Card, Panel, Shell, Table } from "@/components/ui";
+import type { Metadata } from "next";
+import { SearchX } from "lucide-react";
+import { Role, type Prisma } from "@/generated/prisma";
+import { EmptyState, PageHeader, Pagination, Panel, Shell, Stat, Stats, StatusBadge, Table, withQuery } from "@/components/ui";
+import { attendanceDisplayStatus, formatCalendarDate, formatHours, formatTime, hoursBetween, isDateString, manilaDate } from "@/lib/format";
+import { pageArgs, parsePage } from "@/lib/pagination";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/page-auth";
 
-type Query = { dateFrom?: string; dateTo?: string; studentId?: string; companyId?: string };
-function validDate(value?: string) { return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00.000Z`) : undefined; }
+export const metadata: Metadata = { title: "Attendance report" };
+
+type Query = { dateFrom?: string; dateTo?: string; studentId?: string; companyId?: string; page?: string };
 
 export default async function Reports({ searchParams }: { searchParams: Promise<Query> }) {
   const { role, user } = await requireRole([Role.COORDINATOR]);
   const query = await searchParams;
-  const from = validDate(query.dateFrom);
-  const toDate = validDate(query.dateTo);
-  const to = toDate ? new Date(toDate.getTime() + 86_400_000) : undefined;
+  const page = parsePage(query.page);
+  const from = isDateString(query.dateFrom) ? new Date(`${query.dateFrom}T00:00:00.000Z`) : undefined;
+  const to = isDateString(query.dateTo) ? new Date(`${query.dateTo}T00:00:00.000Z`) : undefined;
   const studentId = query.studentId || undefined;
   const companyId = query.companyId || undefined;
-  const [students, companies, records] = await Promise.all([
-    prisma.student.findMany({ where: { user: { role: Role.STUDENT, active: true } }, include: { user: true }, orderBy: { user: { name: "asc" } }, take: 500 }),
-    prisma.company.findMany({ orderBy: { name: "asc" }, take: 500 }),
-    prisma.attendanceRecord.findMany({ where: { ...(from || to ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lt: to } : {}) } } : {}), ...(studentId ? { studentId } : {}), ...(companyId ? { student: { placement: { companyId } } } : {}) }, include: { student: { include: { user: true, placement: { include: { company: true } } } } }, orderBy: [{ date: "desc" }, { timeIn: "desc" }], take: 2000 }),
+  const where: Prisma.AttendanceRecordWhereInput = {
+    ...(from || to ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+    ...(studentId ? { studentId } : {}),
+    ...(companyId ? { student: { placement: { companyId } } } : {}),
+  };
+  const today = manilaDate();
+  const [students, companies, records, summary] = await Promise.all([
+    prisma.student.findMany({ where: { user: { role: Role.STUDENT } }, include: { user: true }, orderBy: { user: { name: "asc" } }, take: 1000 }),
+    prisma.company.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" }, take: 1000 }),
+    prisma.attendanceRecord.findMany({ where, include: { student: { include: { user: true, placement: { include: { company: true } } } } }, orderBy: [{ date: "desc" }, { timeIn: "desc" }], ...pageArgs(page) }),
+    prisma.attendanceRecord.findMany({ where, select: { date: true, status: true, timeIn: true, timeOut: true } }),
   ]);
-  const hours = records.reduce((sum, row) => sum + (row.timeIn && row.timeOut ? (row.timeOut.getTime() - row.timeIn.getTime()) / 3_600_000 : 0), 0);
-  const count = (status: AttendanceStatus) => records.filter((record) => record.status === status).length;
-  return <Shell role={role} name={user.name} active="Reports">
-    <div className="heading-row"><div><div className="eyebrow">Coordinator workspace</div><h1 className="page-title">Attendance reports</h1><p className="subtle">Metrics and records are calculated from saved attendance events.</p></div></div>
-    <Panel title="Filter records"><form method="get"><div className="form-grid"><div className="field"><label htmlFor="dateFrom">Date from</label><input id="dateFrom" type="date" name="dateFrom" defaultValue={query.dateFrom} /></div><div className="field"><label htmlFor="dateTo">Date to</label><input id="dateTo" type="date" name="dateTo" defaultValue={query.dateTo} /></div><div className="field"><label htmlFor="studentId">Student</label><select id="studentId" name="studentId" defaultValue={studentId ?? ""}><option value="">All students</option>{students.map((student) => <option key={student.id} value={student.id}>{student.user.name}</option>)}</select></div><div className="field"><label htmlFor="companyId">Company</label><select id="companyId" name="companyId" defaultValue={companyId ?? ""}><option value="">All companies</option>{companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></div></div><div className="actions"><button className="button">Apply filters</button><a className="button secondary" href="/reports">Clear filters</a></div></form></Panel>
-    <div className="cards"><Card label="Present" value={String(count(AttendanceStatus.PRESENT))} note="Matching records" /><Card label="Late" value={String(count(AttendanceStatus.LATE))} note="Matching records" /><Card label="Absent" value={String(count(AttendanceStatus.ABSENT))} note="Matching records" /><Card label="Completed hours" value={hours.toFixed(1)} note="From complete time pairs" /></div>
-    <Panel title={`Attendance detail · ${records.length} records`}>{records.length ? <Table headers={["Student", "Company", "Date", "Time in", "Time out", "Status", "Hours", "Method"]} rows={records.map((record) => [record.student.user.name, record.student.placement?.company.name ?? "—", new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" }).format(record.date), record.timeIn ? new Intl.DateTimeFormat("en-PH", { timeStyle: "short", timeZone: "Asia/Manila" }).format(record.timeIn) : "—", record.timeOut ? new Intl.DateTimeFormat("en-PH", { timeStyle: "short", timeZone: "Asia/Manila" }).format(record.timeOut) : "—", <Badge tone={record.status === "ABSENT" ? "red" : record.status === "LATE" ? "amber" : "green"}>{record.status}</Badge>, record.timeIn && record.timeOut ? ((record.timeOut.getTime() - record.timeIn.getTime()) / 3_600_000).toFixed(2) : "—", record.verification ? "Verified device" : record.method])} /> : <div className="empty">No attendance records match these filters.</div>}</Panel>
-  </Shell>;
+  const hours = summary.reduce((sum, row) => sum + hoursBetween(row.timeIn, row.timeOut), 0);
+  const count = (status: string) => summary.filter((row) => attendanceDisplayStatus(row, today) === status).length;
+
+  return (
+    <Shell role={role} name={user.name}>
+      <PageHeader eyebrow="Coordinator" title="Attendance report" description="Totals cover every record that matches the filters, not just this page." />
+      <Panel title="Filters">
+        <form method="get" className="filters">
+          <div className="field"><label htmlFor="dateFrom">From</label><input id="dateFrom" type="date" name="dateFrom" defaultValue={from ? query.dateFrom : ""} /></div>
+          <div className="field"><label htmlFor="dateTo">To</label><input id="dateTo" type="date" name="dateTo" defaultValue={to ? query.dateTo : ""} /></div>
+          <div className="field"><label htmlFor="studentId">Student</label><select id="studentId" name="studentId" defaultValue={studentId ?? ""}><option value="">All students</option>{students.map((student) => <option key={student.id} value={student.id}>{student.user.name} · {student.studentNumber}</option>)}</select></div>
+          <div className="field"><label htmlFor="companyId">Company</label><select id="companyId" name="companyId" defaultValue={companyId ?? ""}><option value="">All companies</option>{companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></div>
+          <div className="actions" style={{ marginTop: 0 }}><button className="button button-primary">Apply</button><a className="button button-ghost" href="/reports">Clear</a></div>
+        </form>
+      </Panel>
+      <Stats>
+        <Stat label="Present" value={count("PRESENT")} tone="green" />
+        <Stat label="Late" value={count("LATE")} tone="amber" />
+        <Stat label="Missed time-outs" value={count("INCOMPLETE")} tone="red" />
+        <Stat label="Hours rendered" value={formatHours(hours)} note={`${summary.length} records`} />
+      </Stats>
+      <Panel title="Records">
+        {records.length ? <Table caption="Attendance records" headers={["Student", "Company", "Date", "Time in", "Time out", "Hours", "Status"]} rows={records.map((record) => [
+          record.student.user.name,
+          record.student.placement?.company.name ?? "—",
+          formatCalendarDate(record.date),
+          formatTime(record.timeIn),
+          formatTime(record.timeOut),
+          record.timeOut ? formatHours(hoursBetween(record.timeIn, record.timeOut)) : "—",
+          <StatusBadge key="s" status={attendanceDisplayStatus(record, today)} />,
+        ])} /> : <EmptyState icon={SearchX} title="No matching records">Try a wider date range or clear the filters.</EmptyState>}
+      </Panel>
+      <Pagination page={page} total={summary.length} href={(next) => withQuery("/reports", query, { page: next })} />
+    </Shell>
+  );
 }

@@ -38,13 +38,35 @@ export function signPayload(payload: string) {
   const key = process.env.SIGNING_PRIVATE_KEY_PEM;
   if (!key) throw new Error("Signing key is not configured on the server.");
   const signature = sign(null, Buffer.from(payload), createPrivateKey(key)).toString("base64");
-  return { signature, digest: digest(payload), keyId: process.env.SIGNING_KEY_ID || "unconfigured" };
+  const keyId = process.env.SIGNING_KEY_ID;
+  if (!keyId) throw new Error("Signing key identifier is not configured on the server.");
+  return { signature, digest: digest(payload), keyId };
 }
 
 export function signingPublicKeyPem(): string | null {
   const key = process.env.SIGNING_PRIVATE_KEY_PEM;
   if (!key) return null;
   return createPublicKey(createPrivateKey(key)).export({ type: "spki", format: "pem" }).toString();
+}
+
+function normalizePem(pem: string): string {
+  return createPublicKey(pem).export({ type: "spki", format: "pem" }).toString();
+}
+
+// The trust anchor comes from server configuration, never from the signature row being verified.
+export function trustedSigningKey(): { publicKeyPem: string; keyId: string } | null {
+  const keyId = process.env.SIGNING_KEY_ID;
+  const configured = process.env.SIGNING_PUBLIC_KEY_PEM?.trim();
+  const publicKeyPem = configured ? normalizePem(configured.replaceAll("\\n", "\n")) : signingPublicKeyPem();
+  return keyId && publicKeyPem ? { publicKeyPem, keyId } : null;
+}
+
+export function sameKey(a: string, b: string): boolean {
+  try {
+    return normalizePem(a) === normalizePem(b);
+  } catch {
+    return false;
+  }
 }
 
 export function verifyPayload(payload: string, signature: string, publicPem: string): boolean {

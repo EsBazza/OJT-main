@@ -41,10 +41,19 @@ Coordinators can create company records, assign registered accounts as company s
 - Supabase email/password registration, sign-in, session validation, and sign-out.
 - Student profile onboarding and updates.
 - Placement requests, coordinator decisions, and company supervisor assignment.
-- Server-timestamped manual web attendance with a per-student, per-day uniqueness constraint.
-- Versioned daily reports, supervisor review/return, approval records, and immutable signed versions.
+- Server-timestamped manual web attendance with a per-student, per-day uniqueness constraint. Each approved placement has a shift start and grace period; later time-ins are marked Late. A time-in left open past its day is shown as a missed time-out and does not count toward hours.
+- Versioned daily reports tied to an attended date (the OJT day number is derived from attendance), supervisor review/return, approval records, and immutable signed versions. Supervisors can act only on the latest version of reports from students assigned to them.
 - Ed25519 signatures over canonical report data, SHA-256 digests, and coordinator verification against the registered supervisor public key.
-- Audit events for key account and workflow actions.
+- Audit events for key account and workflow actions, with filters.
+- Coordinator account management: deactivate/reactivate accounts and remove supervisor access.
+
+## Security model
+
+- All writes go through server actions using Prisma. Migration `20261029000000_harden_access_and_schedules` revokes INSERT/UPDATE/DELETE from the Supabase `anon` and `authenticated` roles, so the public key cannot change data through the REST API.
+- `src/middleware.ts` refreshes the Supabase session on every request.
+- Signature verification trusts only the server key (`SIGNING_PUBLIC_KEY_PEM`, or the key derived from `SIGNING_PRIVATE_KEY_PEM`, plus `SIGNING_KEY_ID`). The public key stored with each signature must match it.
+- Workflow authorization rules live in `src/lib/policy.ts` and are covered by `tests/policy.test.ts`.
+- Security headers (CSP, frame denial, nosniff, referrer policy) are set in `next.config.ts`.
 
 ## Known hardware and service integrations
 

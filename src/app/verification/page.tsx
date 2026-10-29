@@ -1,37 +1,55 @@
+import type { Metadata } from "next";
+import { ShieldCheck } from "lucide-react";
 import { Role } from "@/generated/prisma";
-import { Panel, Shell } from "@/components/ui";
-import { VerifyButton } from "@/components/verify-button";
+import { DefinitionGrid, EmptyState, Notice, PageHeader, Pagination, Panel, Shell, withQuery } from "@/components/ui";
+import { CopyDigest, VerifyButton } from "@/components/verify-button";
+import { formatCalendarDate, formatDateTime } from "@/lib/format";
+import { pageArgs, parsePage } from "@/lib/pagination";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/page-auth";
 
-export default async function Verification() {
+export const metadata: Metadata = { title: "Verify signatures" };
+
+export default async function Verification({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   const { role, user } = await requireRole([Role.COORDINATOR]);
-  const signatures = await prisma.digitalSignature.findMany({
-    include: {
-      version: {
-        include: {
-          documentation: {
-            include: {
-              student: { include: { user: true, placement: { include: { company: true } } } },
-            },
-          },
-          approvals: { where: { decision: "APPROVED" }, orderBy: { createdAt: "desc" }, take: 1 },
-        },
-      },
-    },
-    orderBy: { signedAt: "desc" },
-  });
-  const signerIds = [...new Set(signatures.map((item) => item.signerId))];
-  const signers = await prisma.userProfile.findMany({ where: { id: { in: signerIds } }, include: { supervisor: true } });
-  const signerById = new Map(signers.map((signer) => [signer.id, signer]));
-  return <Shell role={role} name={user.name} active="Signature verification">
-    <div className="heading-row"><div><div className="eyebrow">Integrity records</div><h1 className="page-title">Digital signature verification</h1><p className="subtle">Verify saved report versions against the signing supervisor’s registered Ed25519 public key.</p></div></div>
-    <div className="notice warn">A valid signature confirms that the signed content has not changed and matches a trusted key. It does not independently prove a person’s real-world identity.</div>
-    {signatures.length ? signatures.map((signature) => {
-      const version = signature.version;
-      const report = version.documentation;
-      const signer = signerById.get(signature.signerId);
-      return <Panel key={signature.id} title={`Day ${report.day} · Version ${version.version} · ${report.student.user.name}`}><div className="form-grid"><div><span className="small">Company</span><div><b>{report.student.placement?.company.name ?? "Placement not found"}</b></div></div><div><span className="small">Signer</span><div><b>{signer?.name ?? "Unknown account"}</b></div></div><div><span className="small">Signed</span><div><b>{new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" }).format(signature.signedAt)}</b></div></div><div><span className="small">Key identifier</span><div><b>{signature.keyId}</b></div></div><div className="field full"><span className="small">SHA-256 digest</span><code style={{ overflowWrap: "anywhere" }}>{signature.digest}</code></div></div><p>{version.activities}</p><VerifyButton documentId={version.id} /></Panel>;
-    }) : <Panel title="Signed report versions"><div className="empty">No digitally signed reports are available to verify.</div></Panel>}
-  </Shell>;
+  const query = await searchParams;
+  const page = parsePage(query.page);
+  const size = 10;
+  const [signatures, total] = await Promise.all([
+    prisma.digitalSignature.findMany({
+      include: { version: { include: { documentation: { include: { student: { include: { user: true } } } }, approvals: { where: { decision: "APPROVED" }, orderBy: { createdAt: "desc" }, take: 1 } } } },
+      orderBy: { signedAt: "desc" },
+      ...pageArgs(page, size),
+    }),
+    prisma.digitalSignature.count(),
+  ]);
+  const signers = await prisma.userProfile.findMany({ where: { id: { in: [...new Set(signatures.map((item) => item.signerId))] } }, select: { id: true, name: true } });
+  const signerName = new Map(signers.map((signer) => [signer.id, signer.name]));
+
+  return (
+    <Shell role={role} name={user.name}>
+      <PageHeader eyebrow="Integrity" title="Verify signatures" description="Check that a signed report has not changed and was signed with the server's trusted key by the approving supervisor." />
+      <Notice tone="info">A valid result proves the report content is unchanged since signing. All supervisors sign through one server key, so it does not prove which person physically pressed Sign — the audit log records that.</Notice>
+      {signatures.length ? signatures.map((signature) => {
+        const version = signature.version;
+        const report = version.documentation;
+        const approval = version.approvals[0];
+        return (
+          <Panel key={signature.id} title={`${report.student.user.name} · Day ${report.day}`}>
+            <DefinitionGrid items={[
+              ["Report date", formatCalendarDate(report.reportDate)],
+              ["Version", String(version.version)],
+              ["Company at approval", approval?.companyNameSnapshot ?? "—"],
+              ["Signed by", signerName.get(signature.signerId) ?? "Unknown account"],
+              ["Signed", formatDateTime(signature.signedAt)],
+              ["Key ID", <code key="k">{signature.keyId}</code>],
+            ]} />
+            <div style={{ margin: "16px 0" }}><span className="label">SHA-256 digest</span><CopyDigest value={signature.digest} /></div>
+            <VerifyButton documentId={version.id} />
+          </Panel>
+        );
+      }) : <Panel><EmptyState icon={ShieldCheck} title="No signed reports yet">Reports appear here after a supervisor signs them.</EmptyState></Panel>}
+      <Pagination page={page} total={total} size={size} href={(next) => withQuery("/verification", query, { page: next })} />
+    </Shell>
+  );
 }

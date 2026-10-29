@@ -7,3 +7,4 @@ src/generated/prisma
 coverage
 *.log
 *.tsbuildinfo
+.next-verify
