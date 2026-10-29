@@ -1,19 +1,17 @@
 import type { Metadata } from "next";
-import { Check, CheckCheck, Undo2 } from "lucide-react";
+import { CheckCheck } from "lucide-react";
 import { DocumentStatus, Role } from "@/generated/prisma";
-import { reviewReport } from "@/app/actions/supervisor";
-import { SubmitButton } from "@/components/form";
 import { EmptyState, Notice, PageHeader, Panel, Shell, StatusBadge, SuccessMark } from "@/components/ui";
 import { formatCalendarDate, formatDateTime } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/page-auth";
+import { ReviewForm } from "./review-form";
 import { SignForm } from "./sign-form";
 
 export const metadata: Metadata = { title: "Review & sign" };
 
 const errors: Record<string, string> = {
   invalid: "The review request was incomplete.",
-  remarks: "Add remarks (at least 3 characters) so the student knows what to change.",
   confirm: "Tick the confirmation box before signing.",
   permission: "You are not authorized to act on this report.",
   stale: "This report changed since you opened the page. Check the latest version below.",
@@ -21,7 +19,6 @@ const errors: Record<string, string> = {
   "signing-key": "Your signing key does not match the server's trusted key. Ask your coordinator to update your supervisor access.",
 };
 
-const successes: Record<string, string> = { approved: "Report approved.", returned: "Report returned to the student with your remarks.", signed: "Report signed. It can no longer be changed." };
 
 function Section({ title, current, previous }: { title: string; current: string; previous?: string }) {
   const changed = previous !== undefined && previous !== current;
@@ -51,7 +48,6 @@ export default async function Signing({ searchParams }: { searchParams: Promise<
       <PageHeader eyebrow="Supervisor" title="Review & sign" description="Approve or return each report, then sign approved reports. Only the latest version can be reviewed." />
       {query.error && <Notice tone="error">{errors[query.error] ?? "The action could not be completed."}</Notice>}
       {query.success === "signed" && <Panel><SuccessMark variant="seal" title="Report signed">The report is now sealed and can no longer be changed.</SuccessMark></Panel>}
-      {query.success && query.success !== "signed" && <Notice tone="success">{successes[query.success] ?? "Saved."}</Notice>}
       {!assignment && <Notice tone="warn" title="No company assignment">Your account is not assigned to a company yet. Contact your OJT coordinator.</Notice>}
       {assignment && !assignment.canSign && <Notice tone="info">You have review-only access. A signing supervisor at your company signs approved reports.</Notice>}
 
@@ -68,18 +64,7 @@ export default async function Signing({ searchParams }: { searchParams: Promise<
               <Section title="Challenges" current={version.challenges} previous={previous?.challenges} />
             </div>
             {report.status === DocumentStatus.SUBMITTED && (
-              <form action={reviewReport} className="stack" style={{ marginTop: 16 }}>
-                <input type="hidden" name="versionId" value={version.id} />
-                <div className="field">
-                  <label htmlFor={`remarks-${version.id}`}>Remarks</label>
-                  <textarea id={`remarks-${version.id}`} name="remarks" maxLength={2000} aria-describedby={`remarks-${version.id}-hint`} />
-                  <p className="field-hint" id={`remarks-${version.id}-hint`}>Required when returning a report. Optional when approving.</p>
-                </div>
-                <div className="actions" style={{ marginTop: 0 }}>
-                  <SubmitButton name="decision" value="approve" pendingText="Approving…"><Check aria-hidden="true" size={18} />Approve</SubmitButton>
-                  <SubmitButton name="decision" value="return" variant="secondary" pendingText="Returning…"><Undo2 aria-hidden="true" size={18} />Return for changes</SubmitButton>
-                </div>
-              </form>
+              <ReviewForm versionId={version.id} label={label} />
             )}
             {report.status === DocumentStatus.APPROVED && assignment.canSign && <SignForm versionId={version.id} label={label} />}
           </Panel>

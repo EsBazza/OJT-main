@@ -5,9 +5,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { dateFromString, dateToString, isDateString, manilaDate, manilaDateString } from "@/lib/format";
-import { fieldErrorsFrom, formValues, isUniqueViolation, type FormState } from "@/lib/form-state";
+import { failed, fieldErrorsFrom, formValues, isUniqueViolation, succeeded, type FormState } from "@/lib/form-state";
 import { requireRole } from "@/lib/page-auth";
-import { attendanceStatusFor, reportDayNumber } from "@/lib/policy";
+import { attendanceStatusFor, canWithdraw, reportDayNumber } from "@/lib/policy";
 import { notify } from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
 
@@ -152,4 +152,27 @@ export async function submitDailyReport(_state: FormState, form: FormData): Prom
   revalidatePath("/documentation");
   revalidatePath("/supervisor/signing");
   redirect("/documentation?success=submitted");
+}
+
+export async function withdrawReport(_state: FormState, form: FormData): Promise<FormState> {
+  const { profile } = await requireRole([Role.STUDENT]);
+  const versionId = z.string().uuid().safeParse(form.get("versionId"));
+  if (!versionId.success) return failed("That report was not found.");
+  const version = await prisma.documentVersion.findUnique({ where: { id: versionId.data }, include: { documentation: { include: { student: true } }, _count: { select: { approvals: true } } } });
+  const latest = version ? await prisma.documentVersion.findFirst({ where: { documentationId: version.documentationId }, orderBy: { version: "desc" }, select: { id: true } }) : null;
+  if (!version || !canWithdraw({ actorId: profile.id, studentUserId: version.documentation.student.userId, documentStatus: version.documentation.status, latestVersionId: latest?.id ?? null, versionId: version.id, hasDecision: version._count.approvals > 0 })) {
+    revalidatePath("/documentation");
+    return failed("This report can no longer be withdrawn. Your supervisor may have already reviewed it.");
+  }
+  // Conditional update: if the supervisor acts at the same moment, only one of them wins.
+  const changed = await prisma.dailyDocumentation.updateMany({ where: { id: version.documentationId, status: DocumentStatus.SUBMITTED }, data: { status: DocumentStatus.DRAFT } });
+  if (changed.count !== 1) {
+    revalidatePath("/documentation");
+    return failed("This report can no longer be withdrawn. Your supervisor may have already reviewed it.");
+  }
+  await prisma.auditLog.create({ data: { actorId: profile.id, action: "REPORT_WITHDRAWN", targetType: "document_version", targetId: version.id, details: { day: version.documentation.day } } });
+  revalidatePath("/");
+  revalidatePath("/documentation");
+  revalidatePath("/supervisor/signing");
+  return succeeded(`Day ${version.documentation.day} report withdrawn. Edit it above and resubmit when ready.`);
 }

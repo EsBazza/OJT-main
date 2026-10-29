@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Download, NotebookPen } from "lucide-react";
+import { ChevronRight, Download, NotebookPen } from "lucide-react";
 import Link from "next/link";
 import { DocumentStatus, PlacementStatus, Role } from "@/generated/prisma";
 import { EmptyState, Notice, PageHeader, Pagination, Panel, Shell, StatusBadge, withQuery } from "@/components/ui";
@@ -9,6 +9,7 @@ import { reportDayNumber } from "@/lib/policy";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/page-auth";
 import { ReportForm, type ReportOption } from "./report-form";
+import { WithdrawForm } from "./withdraw-form";
 
 export const metadata: Metadata = { title: "Daily reports" };
 
@@ -52,7 +53,7 @@ export default async function Documentation({ searchParams }: { searchParams: Pr
       const doc = byDate.get(date);
       if (doc && doc.status !== DocumentStatus.RETURNED && doc.status !== DocumentStatus.DRAFT) return [];
       const version = doc?.versions[0];
-      return [{ date, label: formatCalendarDate(new Date(`${date}T00:00:00Z`), "medium"), day: reportDayNumber(dates, date) ?? 0, returned: doc?.status === DocumentStatus.RETURNED, activities: version?.activities ?? "", skills: version?.skills ?? "", challenges: version?.challenges ?? "", remarks: version?.approvals[0]?.remarks ?? null }];
+      return [{ date, label: formatCalendarDate(new Date(`${date}T00:00:00Z`), "medium"), day: reportDayNumber(dates, date) ?? 0, returned: doc?.status === DocumentStatus.RETURNED, withdrawn: doc?.status === DocumentStatus.DRAFT && Boolean(version), activities: version?.activities ?? "", skills: version?.skills ?? "", challenges: version?.challenges ?? "", remarks: version?.approvals[0]?.remarks ?? null }];
     });
   }
 
@@ -71,26 +72,37 @@ export default async function Documentation({ searchParams }: { searchParams: Pr
       )}
 
       <Panel title={role === Role.STUDENT ? "My reports" : "Reports"} actions={<span className="muted">{total} total</span>}>
-        {reports.length ? reports.map((report) => {
+        {reports.length ? reports.map((report, index) => {
           const version = report.versions[0];
           const remark = version?.approvals[0]?.remarks;
+          // Collapsed by default; the newest report and anything needing the student's action start open.
+          const open = index === 0 || report.status === DocumentStatus.RETURNED || report.status === DocumentStatus.DRAFT;
           return (
-            <article key={report.id} className="report">
-              <div className="report-head">
-                <h3 style={{ margin: 0 }}>{role === Role.SUPERVISOR ? `${report.student.user.name} · ` : ""}Day {report.day}{report.reportDate ? ` · ${formatCalendarDate(report.reportDate)}` : ""}</h3>
+            <details key={report.id} className="report" open={open}>
+              <summary className="report-head">
+                <span className="report-title">
+                  <ChevronRight className="report-chevron" aria-hidden="true" size={18} />
+                  <b>{role === Role.SUPERVISOR ? `${report.student.user.name} · ` : ""}Day {report.day}{report.reportDate ? ` · ${formatCalendarDate(report.reportDate)}` : ""}</b>
+                </span>
                 <StatusBadge status={report.status} />
+              </summary>
+              <div className="report-content">
+                <Progress status={report.status} />
+                {version && <>
+                  <div className="report-meta">
+                    <p className="small">Version {version.version} · submitted {formatDateTime(version.submittedAt)}</p>
+                    <div className="actions" style={{ marginTop: 0 }}>
+                      {role === Role.STUDENT && report.status === DocumentStatus.SUBMITTED && <WithdrawForm versionId={version.id} day={report.day} />}
+                      <a className="button button-ghost button-small" href={`/api/export/report/${version.id}`}><Download aria-hidden="true" size={16} />{report.status === "SIGNED" ? "Signed PDF" : "PDF copy"}</a>
+                    </div>
+                  </div>
+                  {report.status === DocumentStatus.DRAFT && role === Role.STUDENT && <div className="remark">Withdrawn. Edit it in the form above and resubmit.</div>}
+                  {remark && <div className="remark"><b>Supervisor remarks:</b> {remark}</div>}
+                  <h3>Activities</h3><p className="report-body">{version.activities}</p>
+                  <div className="form-grid"><div><h3>Skills</h3><p className="report-body">{version.skills}</p></div><div><h3>Challenges</h3><p className="report-body">{version.challenges}</p></div></div>
+                </>}
               </div>
-              <Progress status={report.status} />
-              {version && <>
-                <div className="report-meta">
-                  <p className="small">Version {version.version} · submitted {formatDateTime(version.submittedAt)}</p>
-                  <a className="button button-ghost" href={`/api/export/report/${version.id}`}><Download aria-hidden="true" size={16} />{report.status === "SIGNED" ? "Signed PDF" : "PDF copy"}</a>
-                </div>
-                {remark && <div className="remark"><b>Supervisor remarks:</b> {remark}</div>}
-                <h3>Activities</h3><p className="report-body">{version.activities}</p>
-                <div className="form-grid"><div><h3>Skills</h3><p className="report-body">{version.skills}</p></div><div><h3>Challenges</h3><p className="report-body">{version.challenges}</p></div></div>
-              </>}
-            </article>
+            </details>
           );
         }) : <EmptyState icon={NotebookPen} title="No reports yet">{role === Role.STUDENT ? "Your submitted reports will appear here." : "Reports from your assigned students will appear here."}</EmptyState>}
       </Panel>

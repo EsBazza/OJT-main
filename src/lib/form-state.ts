@@ -5,7 +5,17 @@ export type FormState = {
   fieldErrors?: Record<string, string>;
   values?: Record<string, string>;
   success?: string;
+  // Changes on every result so the client can show a toast even when the message repeats.
+  at?: number;
 };
+
+export function succeeded(message: string): FormState {
+  return { success: message, at: Date.now() };
+}
+
+export function failed(message: string, extra: Omit<FormState, "error" | "at"> = {}): FormState {
+  return { ...extra, error: message, at: Date.now() };
+}
 
 export const initialFormState: FormState = {};
 

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { BadgeCheck, Bell, Building2, ChartColumn, Clock, FileText, History, House, ListChecks, MoreHorizontal, PenLine, ShieldCheck, TrendingUp, User, Users } from "lucide-react";
 import type { IconName, NavItem } from "./nav-config";
+import { useDismiss } from "./use-dismiss";
 
 const icons: Record<IconName, typeof House> = {
   home: House, user: User, building: Building2, clock: Clock, history: History, file: FileText,
@@ -39,6 +40,7 @@ export function SideNav({ items }: { items: NavItem[] }) {
 export function BottomNav({ primary, more }: { primary: NavItem[]; more: NavItem[] }) {
   const pathname = usePathname();
   const menu = useRef<HTMLDetailsElement>(null);
+  useDismiss(menu);
   // Close the "More" sheet after navigating.
   useEffect(() => { if (menu.current) menu.current.open = false; }, [pathname]);
   const moreActive = more.some((item) => isActive(pathname, item.href));

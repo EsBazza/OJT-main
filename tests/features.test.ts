@@ -80,3 +80,13 @@ test("month navigation parses and wraps across years", () => {
   assert.equal(shiftMonth(2026, 1, -1), "2025-12");
   assert.equal(shiftMonth(2026, 12, 1), "2027-01");
 });
+
+test("students can withdraw only their own latest report before review", async () => {
+  const { canWithdraw } = await import("../src/lib/policy");
+  const base = { actorId: "student-1", studentUserId: "student-1", documentStatus: "SUBMITTED", latestVersionId: "v2", versionId: "v2", hasDecision: false };
+  assert.equal(canWithdraw(base), true);
+  assert.equal(canWithdraw({ ...base, actorId: "student-2" }), false);
+  assert.equal(canWithdraw({ ...base, documentStatus: "APPROVED" }), false);
+  assert.equal(canWithdraw({ ...base, versionId: "v1" }), false);
+  assert.equal(canWithdraw({ ...base, hasDecision: true }), false);
+});

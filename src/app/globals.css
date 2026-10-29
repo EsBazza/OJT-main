@@ -649,3 +649,50 @@ body, .panel, .stat, .bottom-nav, .field input, .field textarea, .field select {
   .bell.has-unread svg { animation: none; }
   .bell-badge { animation: fade-in var(--duration-ui) ease; }
 }
+
+/* ---------- Confirm dialog ---------- */
+.confirm-dialog { width: min(440px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); color: var(--color-text); box-shadow: 0 24px 64px rgb(2 8 23 / 35%); }
+.confirm-dialog[open] { animation: pop-in var(--duration-ui) var(--ease-out); }
+.confirm-dialog::backdrop { background: rgb(5 13 36 / 55%); backdrop-filter: blur(2px); animation: fade-in var(--duration-ui) ease; }
+.confirm-body { padding: var(--space-5); display: grid; gap: var(--space-2); }
+.confirm-body h2 { font-size: 19px; color: var(--color-heading); }
+.confirm-body .actions { justify-content: flex-end; }
+.confirm-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--red-fg); background: var(--red-bg); border: 1px solid var(--red-line); }
+
+/* ---------- Small buttons and form spacing ---------- */
+.button-small { min-height: 36px; padding: 4px 10px; font-size: 14px; }
+.review-form { margin-top: var(--space-4); }
+.decision-form { margin: 0; }
+
+/* ---------- Collapsible reports ---------- */
+details.report { border-top: 1px solid var(--color-border); padding: 0; }
+details.report:first-of-type { border-top: 0; }
+details.report > summary { list-style: none; cursor: pointer; padding: var(--space-3) 0; margin: 0; min-height: 48px; }
+details.report > summary::-webkit-details-marker { display: none; }
+.report-title { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.report-chevron { flex: none; color: var(--color-muted); transition: transform var(--duration-ui) var(--ease-out); }
+details.report[open] .report-chevron { transform: rotate(90deg); }
+.report-content { padding-bottom: var(--space-4); animation: fade-in var(--duration-ui) var(--ease-out); }
+@media (hover: hover) and (pointer: fine) { details.report > summary:hover .report-title b { color: var(--color-action); } }
+
+/* ---------- Theme menu ---------- */
+.theme-menu { position: relative; }
+.theme-menu > summary { list-style: none; }
+.theme-menu > summary::-webkit-details-marker { display: none; }
+.theme-menu-list { position: absolute; z-index: 40; right: 0; top: calc(100% + 6px); width: 190px; padding: var(--space-1); display: grid; gap: 2px; border-radius: var(--radius-lg); background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); box-shadow: 0 12px 32px rgb(2 8 23 / 25%); transform-origin: top right; animation: menu-in 160ms var(--ease-out); }
+.sidebar .theme-menu-list { top: auto; bottom: calc(100% + 6px); left: -96px; right: auto; transform-origin: bottom center; }
+@keyframes menu-in { from { opacity: 0; transform: scale(.96); } }
+.theme-option { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; padding: 0 var(--space-3); border: 0; border-radius: 6px; background: transparent; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; transition: background-color var(--duration-ui) ease; }
+.theme-option:hover { background: var(--color-surface-muted); }
+.theme-option[aria-pressed="true"] { color: var(--color-action); }
+.theme-check { margin-left: auto; }
+
+/* ---------- Report drafts ---------- */
+.draft-banner { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius); background: var(--blue-bg); color: var(--blue-fg); border: 1px solid var(--blue-line); font-size: 14px; }
+.draft-banner .button { margin-left: auto; }
+.draft-status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--color-muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .confirm-dialog[open], .theme-menu-list { animation: fade-in var(--duration-ui) ease; }
+  .report-chevron { transition: none; }
+}

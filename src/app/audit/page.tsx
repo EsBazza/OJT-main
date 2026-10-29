@@ -24,6 +24,7 @@ const actions: Record<string, [string, Tone]> = {
   REPORT_SUBMITTED: ["Submitted a report", "blue"],
   REPORT_APPROVED: ["Approved a report", "green"],
   REPORT_RETURNED: ["Returned a report", "amber"],
+  REPORT_WITHDRAWN: ["Withdrew a report", "gray"],
   REPORT_SIGNED: ["Signed a report", "green"],
   SIGNATURE_VERIFIED: ["Verified a signature", "gray"],
   REPORT_EXPORTED: ["Downloaded a report PDF", "gray"],

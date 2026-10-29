@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Fira_Code, Fira_Sans } from "next/font/google";
+import { Toaster } from "@/components/toaster";
 import { themeScript } from "@/lib/theme";
 import "./globals.css";
 
@@ -23,7 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${firaSans.variable} ${firaCode.variable}`} suppressHydrationWarning>
       <head><script dangerouslySetInnerHTML={{ __html: themeScript }} /></head>
-      <body>{children}</body>
+      <body>{children}<Toaster /></body>
     </html>
   );
 }

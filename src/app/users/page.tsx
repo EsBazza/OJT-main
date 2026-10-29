@@ -1,32 +1,17 @@
 import type { Metadata } from "next";
 import { SearchX } from "lucide-react";
 import { Role, type Prisma } from "@/generated/prisma";
-import { changeAccount, createCompany, provisionSupervisor } from "@/app/actions/coordinator";
-import { SubmitButton } from "@/components/form";
-import { Badge, EmptyState, Notice, PageHeader, Pagination, Panel, Shell, Table, withQuery } from "@/components/ui";
+import { Badge, EmptyState, PageHeader, Pagination, Panel, Shell, Table, withQuery } from "@/components/ui";
 import { pageArgs, parsePage } from "@/lib/pagination";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/page-auth";
+import { AccountActions, CompanyForm, SupervisorForm } from "./coordinator-forms";
 
 export const metadata: Metadata = { title: "Users & companies" };
 
-type Query = { q?: string; role?: string; page?: string; cpage?: string; error?: string; success?: string };
+type Query = { q?: string; role?: string; page?: string; cpage?: string };
 
-const errors: Record<string, string> = {
-  company: "Enter a valid company name and address.",
-  "duplicate-company": "A company with that name already exists.",
-  provision: "Choose an active, non-coordinator account (not your own) and a company.",
-  "student-activity": "That account already has student placement, attendance, or reports. Use a separate account for the supervisor.",
-  "has-students": "This supervisor still has approved students. Reassign or finish those placements first.",
-  "signing-key": "The server signing key (SIGNING_PRIVATE_KEY_PEM and SIGNING_KEY_ID) must be configured before granting signing permission.",
-  account: "That account change is not allowed.",
-};
-const successes: Record<string, string> = { company: "Company created.", supervisor: "Supervisor access saved.", deactivate: "Account deactivated.", activate: "Account reactivated.", "remove-supervisor": "Supervisor access removed." };
 const roleNames: Record<Role, string> = { STUDENT: "Student", SUPERVISOR: "Supervisor", COORDINATOR: "Coordinator" };
-
-function AccountAction({ userId, change, label, variant = "secondary" }: { userId: string; change: string; label: string; variant?: "secondary" | "danger" }) {
-  return <form action={changeAccount}><input type="hidden" name="userId" value={userId} /><input type="hidden" name="change" value={change} /><SubmitButton variant={variant} pendingText="Saving…">{label}</SubmitButton></form>;
-}
 
 export default async function Users({ searchParams }: { searchParams: Promise<Query> }) {
   const { role, user } = await requireRole([Role.COORDINATOR]);
@@ -53,24 +38,13 @@ export default async function Users({ searchParams }: { searchParams: Promise<Qu
   return (
     <Shell role={role} name={user.name}>
       <PageHeader eyebrow="Coordinator" title="Users & companies" description="Register companies, give supervisor access, and manage accounts. Coordinator access is granted by a database administrator." />
-      {query.error && <Notice tone="error">{errors[query.error] ?? "The change could not be completed."}</Notice>}
-      {query.success && <Notice tone="success">{successes[query.success] ?? "Saved."}</Notice>}
 
       <div className="grid-2">
         <Panel title="Assign a supervisor">
-          <form action={provisionSupervisor} className="stack">
-            <div className="field"><label htmlFor="userId">Account</label><select id="userId" name="userId" required defaultValue=""><option value="">Choose a registered account</option>{eligible.filter((profile) => profile.id !== user.id).map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.email} · {roleNames[profile.role]}</option>)}</select><p className="field-hint">The person registers first, then you give their account supervisor access.</p></div>
-            <div className="field"><label htmlFor="companyId">Company</label><select id="companyId" name="companyId" required defaultValue=""><option value="">Choose a company</option>{allCompanies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></div>
-            <div className="field"><label htmlFor="canSign">Permission</label><select id="canSign" name="canSign" defaultValue="false"><option value="false">Review reports only</option><option value="true">Review and sign approved reports</option></select></div>
-            <div><SubmitButton pendingText="Saving…">Save supervisor access</SubmitButton></div>
-          </form>
+          <SupervisorForm accounts={eligible.filter((profile) => profile.id !== user.id).map((profile) => ({ id: profile.id, label: `${profile.name} · ${profile.email} · ${roleNames[profile.role]}` }))} companies={allCompanies.map((company) => ({ id: company.id, label: company.name }))} />
         </Panel>
         <Panel title="Register a company">
-          <form action={createCompany} className="stack">
-            <div className="field"><label htmlFor="company-name">Company name</label><input id="company-name" name="name" required minLength={2} maxLength={160} autoComplete="organization" /></div>
-            <div className="field"><label htmlFor="company-address">Address</label><input id="company-address" name="address" required minLength={4} maxLength={300} /></div>
-            <div><SubmitButton pendingText="Creating…">Create company</SubmitButton></div>
-          </form>
+          <CompanyForm />
         </Panel>
       </div>
 
@@ -87,10 +61,7 @@ export default async function Users({ searchParams }: { searchParams: Promise<Qu
           profile.student?.studentNumber ?? (profile.supervisor?.active ? `${profile.supervisor.company.name}${profile.supervisor.canSign ? " · can sign" : ""}` : "—"),
           <Badge key="s" tone={profile.active ? "green" : "red"}>{profile.active ? "Active" : "Inactive"}</Badge>,
           profile.role === Role.COORDINATOR || profile.id === user.id ? <span key="a" className="muted">—</span> : (
-            <div key="a" className="actions" style={{ marginTop: 0 }}>
-              {profile.active ? <AccountAction userId={profile.id} change="deactivate" label="Deactivate" variant="danger" /> : <AccountAction userId={profile.id} change="activate" label="Reactivate" />}
-              {profile.role === Role.SUPERVISOR && <AccountAction userId={profile.id} change="remove-supervisor" label="Remove supervisor" />}
-            </div>
+            <AccountActions key="a" userId={profile.id} name={profile.name} active={profile.active} supervisor={profile.role === Role.SUPERVISOR} />
           ),
         ])} /> : <EmptyState icon={SearchX} title="No matching accounts">Try a different search or role.</EmptyState>}
       </Panel>

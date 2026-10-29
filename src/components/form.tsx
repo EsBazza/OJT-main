@@ -1,19 +1,20 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useFormState } from "./action-form";
 import { useFormStatus } from "react-dom";
 import { Loader2, XCircle } from "lucide-react";
 import type { FormState } from "@/lib/form-state";
 
-type ButtonProps = { children: React.ReactNode; pendingText?: string; variant?: "primary" | "secondary" | "danger" | "ghost"; name?: string; value?: string; disabled?: boolean; className?: string; block?: boolean };
+type ButtonProps = { children: React.ReactNode; pendingText?: string; variant?: "primary" | "secondary" | "danger" | "ghost"; name?: string; value?: string; disabled?: boolean; className?: string; block?: boolean; confirm?: { title: string; body: string; action: string } };
 
 // Disables itself while the form is submitting, which also blocks double submissions.
-export function SubmitButton({ children, pendingText, variant = "primary", name, value, disabled, className, block }: ButtonProps) {
+export function SubmitButton({ children, pendingText, variant = "primary", name, value, disabled, className, block, confirm }: ButtonProps) {
   const { pending, data } = useFormStatus();
   // When a form has several submit buttons, only show progress on the one that was pressed.
   const pressed = pending && (!name || data?.get(name) === value);
   return (
-    <button type="submit" name={name} value={value} disabled={pending || disabled} aria-disabled={pending || disabled} className={`button button-${variant}${block ? " button-block" : ""}${className ? ` ${className}` : ""}`}>
+    <button type="submit" name={name} value={value} data-confirm-title={confirm?.title} data-confirm-body={confirm?.body} data-confirm-action={confirm?.action} disabled={pending || disabled} aria-disabled={pending || disabled} className={`button button-${variant}${block ? " button-block" : ""}${className ? ` ${className}` : ""}`}>
       {pressed && <Loader2 className="spin" aria-hidden="true" size={18} />}
       {pressed ? pendingText ?? "Saving…" : children}
     </button>
@@ -29,7 +30,10 @@ type FieldProps = {
   children?: (props: { id: string; name: string; "aria-invalid"?: boolean; "aria-describedby"?: string; defaultValue?: string }) => React.ReactNode;
 } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "children" | "name">;
 
-export function Field({ label, name, state, hint, full, children, id: givenId, ...input }: FieldProps) {
+export function Field({ label, name, state: givenState, hint, full, children, id: givenId, ...input }: FieldProps) {
+  // Inside an ActionForm the result comes from context, so server pages can render fields directly.
+  const contextState = useFormState();
+  const state = givenState ?? contextState;
   const id = givenId ?? `field-${name}`;
   const error = state?.fieldErrors?.[name];
   const describedBy = [hint ? `${id}-hint` : "", error ? `${id}-error` : ""].filter(Boolean).join(" ") || undefined;

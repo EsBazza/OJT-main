@@ -113,3 +113,8 @@ export function canViewReport(input: { role: string; actorId: string; studentUse
   if (input.role === "SUPERVISOR") return input.assignedSupervisorId === input.actorId;
   return false;
 }
+
+// A student may pull back their own latest submission until a supervisor has acted on it.
+export function canWithdraw(input: { actorId: string; studentUserId: string; documentStatus: string; latestVersionId: string | null; versionId: string; hasDecision: boolean }): boolean {
+  return input.actorId === input.studentUserId && input.documentStatus === "SUBMITTED" && input.latestVersionId === input.versionId && !input.hasDecision;
+}

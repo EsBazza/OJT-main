@@ -131,7 +131,10 @@ async function SupervisorDashboard({ profileId, assignment }: { profileId: strin
 
 async function CoordinatorDashboard() {
   const today = manilaDate();
-  const [students, pendingPlacements, timedInToday, awaitingSupervisors, missedTimeouts, recentAttendance] = await Promise.all([
+  const [companies, supervisors, approvedPlacements, students, pendingPlacements, timedInToday, awaitingSupervisors, missedTimeouts, recentAttendance] = await Promise.all([
+    prisma.company.count(),
+    prisma.supervisorAssignment.count({ where: { active: true, user: { active: true } } }),
+    prisma.ojtPlacement.count({ where: { status: PlacementStatus.APPROVED } }),
     prisma.student.count({ where: { user: { role: Role.STUDENT, active: true } } }),
     prisma.ojtPlacement.count({ where: { status: PlacementStatus.PENDING } }),
     prisma.attendanceRecord.count({ where: { date: today, timeIn: { not: null } } }),
@@ -139,8 +142,21 @@ async function CoordinatorDashboard() {
     prisma.attendanceRecord.count({ where: { date: { lt: today }, timeIn: { not: null }, timeOut: null } }),
     prisma.attendanceRecord.findMany({ orderBy: [{ date: "desc" }, { timeIn: "desc" }], include: { student: { include: { user: true, placement: { include: { company: true } } } } }, take: 8 }),
   ]);
+  // First-run guide, shown until the coordinator has completed each setup step once.
+  const setup = [
+    { label: "Register a company", detail: companies ? `${companies} registered` : "Users & companies page", state: companies ? "done" : "current" },
+    { label: "Assign a supervisor", detail: supervisors ? `${supervisors} active` : "Give a registered account supervisor access", state: supervisors ? "done" : companies ? "current" : "todo" },
+    { label: "Approve a placement", detail: approvedPlacements ? `${approvedPlacements} approved` : pendingPlacements ? `${pendingPlacements} waiting` : "Students submit requests first", state: approvedPlacements ? "done" : supervisors ? "current" : "todo" },
+  ] as const;
+  const setupDone = setup.every((step) => step.state === "done");
   return (
     <>
+      {!setupDone && (
+        <Panel title="Get started" actions={<Link className="button button-secondary" href={!companies || !supervisors ? "/users" : "/companies"}>{!companies ? "Register a company" : !supervisors ? "Assign a supervisor" : "Review placements"}</Link>}>
+          <p className="muted" style={{ marginBottom: 16 }}>Set up OJT Monitor in three steps. This guide disappears once each step is done.</p>
+          <Steps steps={[...setup]} />
+        </Panel>
+      )}
       {pendingPlacements > 0 && <NextStep title={`${pendingPlacements} placement request${pendingPlacements === 1 ? "" : "s"} to review`} description="Approve each with a supervisor and work schedule, or reject it." href="/companies" action="Review placements" />}
       <Stats>
         <Stat icon={Users} label="Active students" value={students} />

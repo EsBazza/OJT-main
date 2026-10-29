@@ -4,6 +4,7 @@ import { DocumentStatus, Role } from "@/generated/prisma";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { failed, succeeded, type FormState } from "@/lib/form-state";
 import { requireRole } from "@/lib/page-auth";
 import { canReview, canSign } from "@/lib/policy";
 import { notify } from "@/lib/notify";
@@ -24,14 +25,18 @@ async function loadVersion(versionId: string) {
   return { version, latestVersionId: latest?.id ?? null };
 }
 
-export async function reviewReport(form: FormData) {
+const reviewErrors = { permission: "You are not authorized to act on this report.", stale: "This report changed since you opened it. The list has been refreshed.", "signing-key": "Signing key mismatch." };
+
+// Returns a result instead of redirecting, so the review queue updates in place.
+export async function reviewReport(_state: FormState, form: FormData): Promise<FormState> {
   const { profile } = await requireRole([Role.SUPERVISOR]);
-  const parsed = z.object({ versionId: z.string().uuid(), decision: z.enum(["approve", "return"]), remarks: z.string().trim().max(2000) }).safeParse({ versionId: form.get("versionId"), decision: form.get("decision"), remarks: form.get("remarks") ?? "" });
-  if (!parsed.success) redirect("/supervisor/signing?error=invalid");
-  if (parsed.data.decision === "return" && parsed.data.remarks.length < 3) redirect("/supervisor/signing?error=remarks");
+  const remarks = String(form.get("remarks") ?? "");
+  const parsed = z.object({ versionId: z.string().uuid(), decision: z.enum(["approve", "return"]), remarks: z.string().trim().max(2000) }).safeParse({ versionId: form.get("versionId"), decision: form.get("decision"), remarks });
+  if (!parsed.success) return failed("The review request was incomplete.", { values: { remarks } });
+  if (parsed.data.decision === "return" && parsed.data.remarks.length < 3) return failed("Add remarks before returning the report.", { values: { remarks }, fieldErrors: { remarks: "Tell the student what to change (at least 3 characters)." } });
   const loaded = await loadVersion(parsed.data.versionId);
   const assignment = await prisma.supervisorAssignment.findUnique({ where: { userId: profile.id } });
-  if (!loaded) redirect("/supervisor/signing?error=permission");
+  if (!loaded) return failed(reviewErrors.permission);
   const { version, latestVersionId } = loaded;
   const placement = version.documentation.student.placement;
   const decision = canReview({
@@ -42,7 +47,10 @@ export async function reviewReport(form: FormData) {
     latestVersionId,
     documentStatus: version.documentation.status,
   });
-  if (!decision.ok || !placement) redirect(`/supervisor/signing?error=${decision.ok ? "permission" : decision.reason}`);
+  if (!decision.ok || !placement) {
+    revalidatePath("/supervisor/signing");
+    return failed(reviewErrors[decision.ok ? "permission" : decision.reason], { values: { remarks } });
+  }
   try {
     await prisma.$transaction(async (tx) => {
       const changed = await tx.dailyDocumentation.updateMany({ where: { id: version.documentationId, status: DocumentStatus.SUBMITTED }, data: { status: parsed.data.decision === "approve" ? DocumentStatus.APPROVED : DocumentStatus.RETURNED } });
@@ -54,12 +62,14 @@ export async function reviewReport(form: FormData) {
         : { type: "REPORT_RETURNED", title: `Day ${version.documentation.day} report needs changes`, body: parsed.data.remarks, href: "/documentation" });
     });
   } catch {
-    redirect("/supervisor/signing?error=stale");
+    revalidatePath("/supervisor/signing");
+    return failed(reviewErrors.stale);
   }
   revalidatePath("/");
   revalidatePath("/documentation");
   revalidatePath("/supervisor/signing");
-  redirect(`/supervisor/signing?success=${parsed.data.decision === "approve" ? "approved" : "returned"}`);
+  const who = `Day ${version.documentation.day} report`;
+  return succeeded(parsed.data.decision === "approve" ? `${who} approved.${assignment?.canSign ? " You can now sign it." : ""}` : `${who} returned to the student with your remarks.`);
 }
 
 export async function signApprovedReport(form: FormData) {
