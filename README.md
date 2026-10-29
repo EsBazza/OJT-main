@@ -46,6 +46,9 @@ Coordinators can create company records, assign registered accounts as company s
 - Ed25519 signatures over canonical report data, SHA-256 digests, and coordinator verification against the registered supervisor public key.
 - Audit events for key account and workflow actions, with filters.
 - Coordinator account management: deactivate/reactivate accounts and remove supervisor access.
+- PDF downloads of daily reports (with signature details and a fresh integrity check) and attendance summaries; CSV export of filtered attendance for coordinators. CSV cells are protected against spreadsheet formula injection.
+- Student attendance calendar, and a coordinator Analytics page (daily attendance, late rate by company, hours progress toward `OJT_REQUIRED_HOURS`, default 486).
+- In-app notifications with a bell and unread count for placement decisions, report submissions, returns, approvals, and signatures.
 
 ## Security model
 

@@ -1,6 +1,6 @@
 import type { Role } from "@/generated/prisma";
 
-export type IconName = "home" | "user" | "building" | "clock" | "history" | "file" | "pen" | "check" | "shield" | "chart" | "list" | "users";
+export type IconName = "home" | "user" | "building" | "clock" | "history" | "file" | "pen" | "check" | "shield" | "chart" | "list" | "users" | "trend" | "bell";
 
 export type NavItem = { name: string; href: string; icon: IconName; roles: Role[]; primary?: Role[] };
 
@@ -17,8 +17,10 @@ export const navItems: NavItem[] = [
   { name: "Attendance history", href: "/attendance/history", icon: "history", roles: ["STUDENT"] },
   { name: "Placement", href: "/placement", icon: "building", roles: ["STUDENT"] },
   { name: "My profile", href: "/profile", icon: "user", roles: ["STUDENT"], primary: ["STUDENT"] },
+  { name: "Analytics", href: "/analytics", icon: "trend", roles: ["COORDINATOR"] },
   { name: "Verify signatures", href: "/verification", icon: "shield", roles: ["COORDINATOR"] },
   { name: "Audit log", href: "/audit", icon: "list", roles: ["COORDINATOR"] },
+  { name: "Notifications", href: "/notifications", icon: "bell", roles: ["STUDENT", "SUPERVISOR", "COORDINATOR"] },
 ];
 
 export function navFor(role: Role) {

@@ -105,3 +105,11 @@ export function canChangeAccount(input: AccountChangeInput): { ok: true } | { ok
   if (input.change !== "activate" && target.role === "SUPERVISOR" && input.assignedActivePlacements > 0) return { ok: false, reason: "has-students" };
   return { ok: true };
 }
+
+// Who may download a report: its student, the supervisor assigned to that student, or a coordinator.
+export function canViewReport(input: { role: string; actorId: string; studentUserId: string; assignedSupervisorId: string | null }): boolean {
+  if (input.role === "COORDINATOR") return true;
+  if (input.role === "STUDENT") return input.studentUserId === input.actorId;
+  if (input.role === "SUPERVISOR") return input.assignedSupervisorId === input.actorId;
+  return false;
+}

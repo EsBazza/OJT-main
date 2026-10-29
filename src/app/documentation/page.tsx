@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { NotebookPen } from "lucide-react";
+import { Download, NotebookPen } from "lucide-react";
 import Link from "next/link";
 import { DocumentStatus, PlacementStatus, Role } from "@/generated/prisma";
 import { EmptyState, Notice, PageHeader, Pagination, Panel, Shell, StatusBadge, withQuery } from "@/components/ui";
@@ -82,7 +82,10 @@ export default async function Documentation({ searchParams }: { searchParams: Pr
               </div>
               <Progress status={report.status} />
               {version && <>
-                <p className="small" style={{ marginTop: 8 }}>Version {version.version} · submitted {formatDateTime(version.submittedAt)}</p>
+                <div className="report-meta">
+                  <p className="small">Version {version.version} · submitted {formatDateTime(version.submittedAt)}</p>
+                  <a className="button button-ghost" href={`/api/export/report/${version.id}`}><Download aria-hidden="true" size={16} />{report.status === "SIGNED" ? "Signed PDF" : "PDF copy"}</a>
+                </div>
                 {remark && <div className="remark"><b>Supervisor remarks:</b> {remark}</div>}
                 <h3>Activities</h3><p className="report-body">{version.activities}</p>
                 <div className="form-grid"><div><h3>Skills</h3><p className="report-body">{version.skills}</p></div><div><h3>Challenges</h3><p className="report-body">{version.challenges}</p></div></div>

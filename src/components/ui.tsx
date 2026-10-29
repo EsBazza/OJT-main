@@ -6,6 +6,7 @@ import { initials, statusLabel, type Tone } from "@/lib/format";
 import { pageCount } from "@/lib/pagination";
 import { BottomNav, SideNav } from "./nav";
 import { navFor } from "./nav-config";
+import { NotificationBell } from "./notification-bell";
 import { ThemeToggle } from "./theme-toggle";
 
 const roleNames: Record<Role, string> = { STUDENT: "Student", SUPERVISOR: "Supervisor", COORDINATOR: "Coordinator" };
@@ -19,6 +20,7 @@ function Account({ name, role }: { name: string; role: Role }) {
     <div className="account">
       <div className="avatar" aria-hidden="true">{initials(name)}</div>
       <div className="account-text"><b>{name}</b><span>{roleNames[role]}</span></div>
+      <NotificationBell />
       <ThemeToggle />
       <form action={signOut}><button className="icon-button" aria-label="Sign out" title="Sign out"><LogOut aria-hidden="true" size={18} /></button></form>
     </div>

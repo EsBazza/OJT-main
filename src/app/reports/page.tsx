@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import { SearchX } from "lucide-react";
-import { Role, type Prisma } from "@/generated/prisma";
+import { Download, FileSpreadsheet, SearchX } from "lucide-react";
+import { Role } from "@/generated/prisma";
 import { EmptyState, PageHeader, Pagination, Panel, Shell, Stat, Stats, StatusBadge, Table, withQuery } from "@/components/ui";
+import { attendanceWhere, filtersFrom } from "@/lib/attendance-query";
 import { attendanceDisplayStatus, formatCalendarDate, formatHours, formatTime, hoursBetween, isDateString, manilaDate } from "@/lib/format";
 import { pageArgs, parsePage } from "@/lib/pagination";
 import { prisma } from "@/lib/prisma";
@@ -19,11 +20,9 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
   const to = isDateString(query.dateTo) ? new Date(`${query.dateTo}T00:00:00.000Z`) : undefined;
   const studentId = query.studentId || undefined;
   const companyId = query.companyId || undefined;
-  const where: Prisma.AttendanceRecordWhereInput = {
-    ...(from || to ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-    ...(studentId ? { studentId } : {}),
-    ...(companyId ? { student: { placement: { companyId } } } : {}),
-  };
+  const filters = filtersFrom(query);
+  const where = attendanceWhere(filters);
+  const exportQuery = new URLSearchParams(Object.entries(filters).filter((entry): entry is [string, string] => Boolean(entry[1]))).toString();
   const today = manilaDate();
   const [students, companies, records, summary] = await Promise.all([
     prisma.student.findMany({ where: { user: { role: Role.STUDENT } }, include: { user: true }, orderBy: { user: { name: "asc" } }, take: 1000 }),
@@ -36,7 +35,7 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
 
   return (
     <Shell role={role} name={user.name}>
-      <PageHeader eyebrow="Coordinator" title="Attendance report" description="Totals cover every record that matches the filters, not just this page." />
+      <PageHeader eyebrow="Coordinator" title="Attendance report" description="Totals and exports cover every record that matches the filters, not just this page." actions={<><a className="button button-secondary" href={`/api/export/attendance?format=csv${exportQuery ? `&${exportQuery}` : ""}`}><FileSpreadsheet aria-hidden="true" size={18} />Export CSV</a><a className="button button-primary" href={`/api/export/attendance?format=pdf${exportQuery ? `&${exportQuery}` : ""}`}><Download aria-hidden="true" size={18} />Export PDF</a></>} />
       <Panel title="Filters">
         <form method="get" className="filters">
           <div className="field"><label htmlFor="dateFrom">From</label><input id="dateFrom" type="date" name="dateFrom" defaultValue={from ? query.dateFrom : ""} /></div>

@@ -8,6 +8,7 @@ import { dateFromString, dateToString, isDateString, manilaDate, manilaDateStrin
 import { fieldErrorsFrom, formValues, isUniqueViolation, type FormState } from "@/lib/form-state";
 import { requireRole } from "@/lib/page-auth";
 import { attendanceStatusFor, reportDayNumber } from "@/lib/policy";
+import { notify } from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
 
 const profileMessages = { name: "Enter your full name (2–100 characters).", studentNumber: "Use 3–40 letters, numbers, or dashes.", program: "Enter your program (2–120 characters)." };
@@ -53,6 +54,8 @@ export async function submitPlacement(_state: FormState, form: FormData): Promis
       const company = existing ?? await tx.company.create({ data: { name: parsed.data.company, address: parsed.data.address, approved: false } });
       await tx.ojtPlacement.upsert({ where: { studentId: student.id }, create: { studentId: student.id, companyId: company.id }, update: { companyId: company.id, supervisorId: null, status: PlacementStatus.PENDING, submittedAt: new Date(), decidedAt: null } });
       await tx.auditLog.create({ data: { actorId: profile.id, action: "PLACEMENT_SUBMITTED", targetType: "placement", targetId: student.id, details: { company: company.name, proposedAddress: parsed.data.address } } });
+      const coordinators = await tx.userProfile.findMany({ where: { role: Role.COORDINATOR, active: true }, select: { id: true } });
+      await notify(tx, coordinators.map((coordinator) => coordinator.id), { type: "PLACEMENT_SUBMITTED", title: `${profile.name} requested a placement`, body: company.name, href: "/companies" });
     });
   } catch (error) {
     if (error instanceof Error && error.message === "ALREADY_SUBMITTED") return { values, error: "You already have a pending or approved placement." };
@@ -136,6 +139,7 @@ export async function submitDailyReport(_state: FormState, form: FormData): Prom
       const changed = await tx.dailyDocumentation.updateMany({ where: { id: documentation.id, status: { in: [DocumentStatus.DRAFT, DocumentStatus.RETURNED] } }, data: { status: DocumentStatus.SUBMITTED } });
       if (changed.count !== 1) throw new Error("REPORT_LOCKED");
       await tx.auditLog.create({ data: { actorId: profile.id, action: "REPORT_SUBMITTED", targetType: "document_version", targetId: version.id, details: { day: documentation.day, date: parsed.data.date, version: version.version } } });
+      await notify(tx, [placement.supervisorId], { type: "REPORT_SUBMITTED", title: `${profile.name} ${version.version > 1 ? "resubmitted" : "submitted"} Day ${documentation.day}`, body: `Report for ${parsed.data.date} is waiting for your review.`, href: "/supervisor/signing" });
     });
   } catch (error) {
     const code = error instanceof Error ? error.message : "";

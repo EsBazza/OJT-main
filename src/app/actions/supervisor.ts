@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireRole } from "@/lib/page-auth";
 import { canReview, canSign } from "@/lib/policy";
+import { notify } from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
 import { canonical, sameKey, signPayload, trustedSigningKey } from "@/lib/signing";
 
@@ -48,6 +49,9 @@ export async function reviewReport(form: FormData) {
       if (changed.count !== 1) throw new Error("REPORT_ALREADY_REVIEWED");
       await tx.approvalRecord.create({ data: { versionId: version.id, supervisorId: profile.id, approvedByName: profile.name, companyNameSnapshot: placement.company.name, companyIdSnapshot: placement.companyId, decision: parsed.data.decision === "approve" ? "APPROVED" : "RETURNED", remarks: parsed.data.remarks || null } });
       await tx.auditLog.create({ data: { actorId: profile.id, action: parsed.data.decision === "approve" ? "REPORT_APPROVED" : "REPORT_RETURNED", targetType: "document_version", targetId: version.id, details: { day: version.documentation.day, remarks: parsed.data.remarks } } });
+      await notify(tx, [version.documentation.student.userId], parsed.data.decision === "approve"
+        ? { type: "REPORT_APPROVED", title: `Day ${version.documentation.day} report approved`, body: parsed.data.remarks || `Approved by ${profile.name}.`, href: "/documentation" }
+        : { type: "REPORT_RETURNED", title: `Day ${version.documentation.day} report needs changes`, body: parsed.data.remarks, href: "/documentation" });
     });
   } catch {
     redirect("/supervisor/signing?error=stale");
@@ -90,6 +94,7 @@ export async function signApprovedReport(form: FormData) {
       await tx.digitalSignature.create({ data: { versionId: version.id, signerId: profile.id, digest: signed.digest, signature: signed.signature, keyId: signed.keyId, publicKeyPem: trustedKey.publicKeyPem } });
       await tx.documentVersion.update({ where: { id: version.id }, data: { immutable: true } });
       await tx.auditLog.create({ data: { actorId: profile.id, action: "REPORT_SIGNED", targetType: "document_version", targetId: version.id, details: { day: version.documentation.day, keyId: signed.keyId, digest: signed.digest } } });
+      await notify(tx, [version.documentation.student.userId], { type: "REPORT_SIGNED", title: `Day ${version.documentation.day} report signed`, body: `Digitally signed by ${profile.name}. You can download the signed PDF.`, href: "/documentation" });
     });
   } catch (error) {
     console.error("Report signing failed", error);

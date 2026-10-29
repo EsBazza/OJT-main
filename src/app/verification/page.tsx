@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { ShieldCheck } from "lucide-react";
+import { Download, ShieldCheck } from "lucide-react";
 import { Role } from "@/generated/prisma";
 import { DefinitionGrid, EmptyState, Notice, PageHeader, Pagination, Panel, Shell, withQuery } from "@/components/ui";
 import { CopyDigest, VerifyButton } from "@/components/verify-button";
@@ -45,6 +45,7 @@ export default async function Verification({ searchParams }: { searchParams: Pro
               ["Key ID", <code key="k">{signature.keyId}</code>],
             ]} />
             <div style={{ margin: "16px 0" }}><span className="label">SHA-256 digest</span><CopyDigest value={signature.digest} /></div>
+            <a className="button button-ghost" style={{ marginBottom: 12, paddingLeft: 0 }} href={`/api/export/report/${version.id}`}><Download aria-hidden="true" size={18} />Download signed PDF</a>
             <VerifyButton documentId={version.id} />
           </Panel>
         );

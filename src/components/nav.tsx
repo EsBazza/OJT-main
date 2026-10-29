@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
-import { BadgeCheck, Building2, ChartColumn, Clock, FileText, History, House, ListChecks, MoreHorizontal, PenLine, ShieldCheck, User, Users } from "lucide-react";
+import { BadgeCheck, Bell, Building2, ChartColumn, Clock, FileText, History, House, ListChecks, MoreHorizontal, PenLine, ShieldCheck, TrendingUp, User, Users } from "lucide-react";
 import type { IconName, NavItem } from "./nav-config";
 
 const icons: Record<IconName, typeof House> = {
   home: House, user: User, building: Building2, clock: Clock, history: History, file: FileText,
-  pen: PenLine, check: BadgeCheck, shield: ShieldCheck, chart: ChartColumn, list: ListChecks, users: Users,
+  pen: PenLine, check: BadgeCheck, shield: ShieldCheck, chart: ChartColumn, list: ListChecks, users: Users, trend: TrendingUp, bell: Bell,
 };
 
 // Every page is its own nav entry, so an exact match is enough.

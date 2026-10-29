@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireRole } from "@/lib/page-auth";
 import { canChangeAccount, canProvisionSupervisor, isValidShift } from "@/lib/policy";
+import { notify } from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
 import { trustedSigningKey } from "@/lib/signing";
 
@@ -19,7 +20,7 @@ export async function decidePlacement(form: FormData) {
     graceMinutes: z.coerce.number().int().min(0).max(120).default(15),
   }).safeParse({ placementId: form.get("placementId"), decision: form.get("decision"), supervisorId: form.get("supervisorId") || undefined, shiftStart: form.get("shiftStart") || undefined, graceMinutes: form.get("graceMinutes") || undefined });
   if (!parsed.success) redirect("/companies?error=invalid");
-  const placement = await prisma.ojtPlacement.findUnique({ where: { id: parsed.data.placementId } });
+  const placement = await prisma.ojtPlacement.findUnique({ where: { id: parsed.data.placementId }, include: { company: true, student: { include: { user: true } } } });
   if (!placement || placement.status !== PlacementStatus.PENDING) redirect("/companies?error=stale");
   let supervisorId: string | null = null;
   if (parsed.data.decision === "approve") {
@@ -34,6 +35,10 @@ export async function decidePlacement(form: FormData) {
       const changed = await tx.ojtPlacement.updateMany({ where: { id: placement.id, status: PlacementStatus.PENDING }, data: { status: approve ? PlacementStatus.APPROVED : PlacementStatus.REJECTED, supervisorId, decidedAt: new Date(), ...(approve ? { shiftStart: parsed.data.shiftStart, graceMinutes: parsed.data.graceMinutes } : {}) } });
       if (changed.count !== 1) throw new Error("PLACEMENT_ALREADY_DECIDED");
       if (approve) await tx.company.update({ where: { id: placement.companyId }, data: { approved: true } });
+      await notify(tx, [placement.student.userId], approve
+        ? { type: "PLACEMENT_APPROVED", title: "Your placement was approved", body: `${placement.company.name} · shift starts ${parsed.data.shiftStart}. You can now time in and submit reports.`, href: "/attendance" }
+        : { type: "PLACEMENT_REJECTED", title: "Your placement request was not approved", body: `${placement.company.name}. Submit another company or contact your coordinator.`, href: "/placement" });
+      if (approve) await notify(tx, [supervisorId], { type: "STUDENT_ASSIGNED", title: `New student assigned: ${placement.student.user.name}`, body: placement.company.name, href: "/supervisor/signing" });
       await tx.auditLog.create({ data: { actorId: profile.id, action: approve ? "PLACEMENT_APPROVED" : "PLACEMENT_REJECTED", targetType: "placement", targetId: placement.id, details: { companyId: placement.companyId, supervisorId, ...(approve ? { shiftStart: parsed.data.shiftStart, graceMinutes: parsed.data.graceMinutes } : {}) } } });
     });
   } catch {

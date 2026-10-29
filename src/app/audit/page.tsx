@@ -26,6 +26,8 @@ const actions: Record<string, [string, Tone]> = {
   REPORT_RETURNED: ["Returned a report", "amber"],
   REPORT_SIGNED: ["Signed a report", "green"],
   SIGNATURE_VERIFIED: ["Verified a signature", "gray"],
+  REPORT_EXPORTED: ["Downloaded a report PDF", "gray"],
+  ATTENDANCE_EXPORTED: ["Exported attendance", "gray"],
 };
 
 function describe(details: Prisma.JsonValue | null): string {
@@ -38,6 +40,7 @@ function describe(details: Prisma.JsonValue | null): string {
   if (entries.company) parts.push(String(entries.company));
   if (entries.name) parts.push(String(entries.name));
   if (entries.status) parts.push(String(entries.status).toLowerCase());
+  if (entries.format) parts.push(`${String(entries.format).toUpperCase()}, ${entries.rows ?? 0} rows`);
   if (entries.result) parts.push(`result: ${String(entries.result).toLowerCase()}`);
   if (entries.shiftStart) parts.push(`shift ${entries.shiftStart}`);
   if (typeof entries.canSign === "boolean") parts.push(entries.canSign ? "can sign" : "review only");
